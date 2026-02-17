@@ -1,42 +1,604 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+.top-right-meta {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  color: #cccccc;
+  z-index: 10;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.reve-logo {
+  display: block;
+  width: 48px;
+  height: 17px;
+  object-fit: contain;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.meta-text {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  color: #cccccc;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.meta-text.light {
+  font-weight: 300;
 }
 
-.card {
-  padding: 2em;
+.meta-text.heavy {
+  font-weight: 700;
 }
 
-.read-the-docs {
-  color: #888;
+.meta-text.separator {
+  font-weight: 300;
+}
+
+.meta-link:hover {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reve-logo + .meta-text {
+  margin-left: 20px;
+}
+
+.meta-text + .meta-text {
+  margin-left: 5px;
+}
+
+.top-right-actions {
+  position: fixed;
+  top: 10px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 10;
+}
+
+.glyph-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.glyph-button:hover {
+  background-color: #333333;
+}
+
+.glyph-icon {
+  display: block;
+}
+
+.tool-palette {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 10;
+}
+
+.tool-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0;
+  border: 1px solid #333333;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  cursor: pointer;
+  appearance: none;
+}
+
+.tool-button[aria-label='Select'] {
+  border-radius: 10px 0 0 10px;
+}
+
+.tool-button[aria-label='Comment'] {
+  border-left: 0;
+  border-right: 0;
+}
+
+.tool-button[aria-label='Reframe'] {
+  border-radius: 0 10px 10px 0;
+  border-left: 0;
+}
+
+.tool-button:hover {
+  background-color: #333333;
+  border-color: #333333;
+}
+
+.tool-button.selected,
+.tool-button.selected:hover {
+  background-color: #cccccc;
+  border-color: transparent;
+  color: #333333;
+}
+
+.tool-glyph-svg {
+  display: block;
+  color: currentColor;
+}
+
+.tool-glyph-select {
+  width: 10px;
+  height: 18px;
+}
+
+.tool-glyph-comment {
+  width: 16px;
+  height: 14px;
+}
+
+.tool-glyph-draw {
+  width: 15px;
+  height: 14px;
+}
+
+.tool-glyph-reframe {
+  width: 18px;
+  height: 22px;
+}
+
+.bottom-left-actions {
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 10;
+}
+
+.text-action-button {
+  height: 40px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #333333;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  appearance: none;
+}
+
+.text-action-button.active {
+  background-color: #cccccc;
+  border-color: transparent;
+  color: #1a1a1a;
+}
+
+.text-action-button:hover {
+  background-color: #333333;
+  border-color: transparent;
+}
+
+.text-action-button.active:hover {
+  background-color: #cccccc;
+  border-color: transparent;
+  color: #1a1a1a;
+}
+
+.text-action-glyph {
+  display: block;
+  color: currentColor;
+}
+
+.info-glyph {
+  width: 18px;
+  height: 18px;
+}
+
+.objects-glyph {
+  width: 18px;
+  height: 20px;
+}
+
+.effects-glyph {
+  width: 23px;
+  height: 22px;
+}
+
+.chevron-glyph {
+  width: 9px;
+  height: 5px;
+}
+
+.bottom-left-panel {
+  position: fixed;
+  left: 10px;
+  bottom: 55px;
+  width: 460px;
+  max-height: 320px;
+  border: 1px solid #333333;
+  border-radius: 12px;
+  background-color: #1a1a1a;
+  padding: 10px;
+  z-index: 11;
+  overflow: auto;
+}
+
+.bottom-left-panel--info {
+  width: 300px;
+  border-radius: 10px;
+  padding: 10px;
+  max-height: none;
+  overflow: visible;
+}
+
+.bottom-left-panel--objects {
+  width: 320px;
+  border-radius: 10px;
+  padding: 10px;
+  max-height: none;
+  overflow: visible;
+}
+
+.menu-description-input {
+  width: 280px;
+  border: 0;
+  border-radius: 5px;
+  background-color: #000000;
+  color: #cccccc;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.objects-list {
+  display: grid;
+  gap: 0;
+}
+
+.object-row {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 5px;
+  text-align: left;
+}
+
+.object-row:hover {
+  background-color: #333333;
+}
+
+.object-thumb {
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  object-fit: cover;
+  display: block;
+}
+
+.object-name {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.effects-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.effect-card {
+  border: 1px solid #333333;
+  border-radius: 8px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.effect-card:hover {
+  background-color: #333333;
+  border-color: transparent;
+}
+
+.effect-thumb {
+  width: 100%;
+  height: 70px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+
+.effect-name {
+  font-size: 12px;
+}
+
+.quick-edit-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.quick-edit-button {
+  height: 40px;
+  border: 1px solid #333333;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.quick-edit-button:hover {
+  background-color: #333333;
+  border-color: transparent;
+}
+
+.quick-edit-glyph {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.composer {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  z-index: 10;
+}
+
+.composer-more-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #333333;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 0;
+  cursor: pointer;
+  margin-right: 5px;
+}
+
+.composer-more-button:hover {
+  background-color: #333333;
+  border-color: transparent;
+}
+
+.composer-more-glyph {
+  width: 13px;
+  height: 3px;
+  display: block;
+}
+
+.composer-input-shell {
+  height: 40px;
+  width: 200px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid #333333;
+  border-radius: 10px 0 0 10px;
+  background-color: #1a1a1a;
+  overflow: visible;
+}
+
+.composer-input {
+  flex: 1;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #cccccc;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 400;
+  padding: 0 0 0 15px;
+}
+
+.composer-input::placeholder {
+  color: #808080;
+  font-style: italic;
+  font-weight: 300;
+}
+
+.composer-chevron-button {
+  width: 20px;
+  height: 20px;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 0;
+  z-index: 2;
+}
+
+.composer-chevron-button:hover {
+  background-color: #333333;
+}
+
+.composer-chevron-up-glyph {
+  width: 9px;
+  height: 5px;
+  display: block;
+}
+
+.composer-add-button {
+  width: 70px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 0;
+  cursor: pointer;
+}
+
+.composer-add-glyph {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.composer-render-button {
+  height: 40px;
+  width: 72px;
+  min-width: 72px;
+  border: 0;
+  border-radius: 0 10px 10px 0;
+  background-color: #4a4a4a;
+  color: #000000;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: default;
+}
+
+.composer-render-button.active {
+  background-color: #3d78ff;
+  cursor: pointer;
+}
+
+.composer-render-button:disabled {
+  opacity: 1;
+}
+
+.image-stage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.image-frame {
+  width: calc(100vw - 20px);
+  max-width: calc(100vw - 20px);
+  position: relative;
+}
+
+.hero-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.object-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.object-box {
+  position: absolute;
+  border: 1px solid #ff0000;
+  box-sizing: border-box;
+}
+
+.object-hover-corners {
+  position: absolute;
+}
+
+.object-box-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translateY(-100%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: #ff0000;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.object-corner-marker {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  display: block;
+  pointer-events: none;
+}
+
+.object-corner-marker-tl {
+  top: 0;
+  left: 0;
+}
+
+.object-corner-marker-tr {
+  top: 0;
+  right: 0;
+}
+
+.object-corner-marker-bl {
+  bottom: 0;
+  left: 0;
+}
+
+.object-corner-marker-br {
+  bottom: 0;
+  right: 0;
+}
+
+.image-hover-tooltip {
+  position: fixed;
+  background-color: rgba(0, 0, 0, 0.85);
+  color: #cccccc;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 20;
+  white-space: nowrap;
 }
