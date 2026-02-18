@@ -1,17 +1,40 @@
-import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import './App.css'
 import montBlancTrail from './assets/photos/montblanctrail.jpg'
 import reveLogo from './assets/reve_logo.svg'
 import favOffGlyph from './assets/glyphs/fav_off.svg'
 import shareGlyph from './assets/glyphs/share.svg'
 import moreGlyph from './assets/glyphs/more.svg'
+import trashGlyph from './assets/glyphs/trash.svg'
+import textGlyph from './assets/glyphs/text.svg'
+import objectGlyph from './assets/glyphs/object.svg'
 import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
 
-type Tool = 'select' | 'comment' | 'draw' | 'reframe'
+type Tool = 'commentDraw' | 'select' | 'reframe'
 type BottomLeftMenu = 'info' | 'objects' | 'effects' | 'quickEdit' | null
+
+const TOOL_INSTRUCTIONS: Record<Tool, string> = {
+  commentDraw:
+    'Click or draw to describe the change you want. Hold option/alt to draw a box.',
+  select: 'Select, move and edit objects.',
+  reframe: 'Edit the aspect ratio and framing.',
+}
+type SourcePoint = { x: number; y: number }
+type SourceBounds = { x: number; y: number; width: number; height: number }
+type CommentPanelState = 'expanded' | 'collapsed'
+type CommentAnnotation = {
+  id: string
+  kind: 'point' | 'stroke'
+  point: SourcePoint
+  strokePoints: SourcePoint[]
+  strokeBounds: SourceBounds | null
+  text: string
+  panelState: CommentPanelState
+  panelPosition: { left: number; top: number }
+}
 
 const imageDescription =
   'A wide-angle landscape photograph of a lush green valley with a winding dirt path leading towards a snow-capped mountain range under a clear blue sky. The mountain range is partially covered in snow, with some rocky areas visible. The sky is a clear, vibrant blue. The image has a deep depth of field, with both the foreground and background in sharp focus. The lighting is natural and even, suggesting a daytime scene. The composition is balanced, with the path leading the eye towards the mountains. The foreground features a variety of wildflowers, including purple and yellow blossoms, and several evergreen trees of varying sizes. The dirt path is light brown and winds through the valley.'
@@ -28,7 +51,23 @@ const objectThumbnails = Object.entries(objectThumbnailModules)
   }))
   .sort((a, b) => a.name.localeCompare(b.name))
 
-const effectNames = ['Cinematic', 'Moody', 'Vintage', 'Black & White', 'High Contrast', 'Soft Glow', 'Cool Tones', 'Warm Film']
+const effectNames = [
+  'Cinematic',
+  'Moody',
+  'Vintage',
+  'Black & White',
+  'High Contrast',
+  'Soft Glow',
+  'Cool Tones',
+  'Warm Film',
+  'Matte',
+  'Sepia',
+  'Vivid',
+  'Fade',
+  'Dramatic',
+  'Neutral',
+  'Golden Hour',
+]
 const sourceImageSize = {
   width: 2720,
   height: 1536,
@@ -51,6 +90,15 @@ const imageObjects = [
   { name: 'Farm House', x: 1301, y: 589, width: 83, height: 74 },
 ]
 
+const normalizeObjectName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const imageObjectNameLookup = new Map(imageObjects.map((imageObject) => [normalizeObjectName(imageObject.name), imageObject.name]))
+
+const objectThumbnailsWithObjectName = objectThumbnails.map((objectThumbnail) => ({
+  ...objectThumbnail,
+  objectName: imageObjectNameLookup.get(normalizeObjectName(objectThumbnail.name)) ?? null,
+}))
+
 const getObjectBoxStyle = (imageObject: (typeof imageObjects)[number]) => ({
   left: `${(imageObject.x / sourceImageSize.width) * 100}%`,
   top: `${(imageObject.y / sourceImageSize.height) * 100}%`,
@@ -58,20 +106,337 @@ const getObjectBoxStyle = (imageObject: (typeof imageObjects)[number]) => ({
   height: `${(imageObject.height / sourceImageSize.height) * 100}%`,
 })
 
+const getSmallestObjectAtSourcePoint = (sourceX: number, sourceY: number) =>
+  imageObjects
+    .filter(
+      (imageObject) =>
+        sourceX >= imageObject.x &&
+        sourceX <= imageObject.x + imageObject.width &&
+        sourceY >= imageObject.y &&
+        sourceY <= imageObject.y + imageObject.height,
+    )
+    .sort((objectA, objectB) => objectA.width * objectA.height - objectB.width * objectB.height)[0] ?? null
+
+const getSmallestObjectAtClientPoint = (clientX: number, clientY: number, imageFrameBounds: DOMRect) => {
+  const localX = clientX - imageFrameBounds.left
+  const localY = clientY - imageFrameBounds.top
+  const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
+  const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
+
+  return getSmallestObjectAtSourcePoint(sourceX, sourceY)
+}
+
+const getObjectPromptText = (objectName: string) =>
+  `The ${objectName.toLowerCase()} is a distinct part of this scene and can be edited independently from the rest of the image. Use focused edits here to refine local detail, color, and texture while keeping the overall composition intact.`
+
+const clampVectorMagnitude = (x: number, y: number, maxMagnitude: number) => {
+  const magnitude = Math.hypot(x, y)
+  if (magnitude <= maxMagnitude || magnitude === 0) {
+    return { x, y }
+  }
+
+  const scale = maxMagnitude / magnitude
+  return { x: x * scale, y: y * scale }
+}
+
+const getObjectPromptPanelPosition = (imageObject: (typeof imageObjects)[number], imageFrameBounds: DOMRect, panelHeight: number) => {
+  const panelWidth = 200
+  const viewportMargin = 10
+  const panelGap = 10
+  const objectCenterX = imageFrameBounds.left + ((imageObject.x + imageObject.width / 2) / sourceImageSize.width) * imageFrameBounds.width
+  const objectTopY = imageFrameBounds.top + (imageObject.y / sourceImageSize.height) * imageFrameBounds.height
+  const objectBottomY = imageFrameBounds.top + ((imageObject.y + imageObject.height) / sourceImageSize.height) * imageFrameBounds.height
+  const hasSpaceAbove = objectTopY - panelGap - panelHeight >= viewportMargin
+  const preferredTop = hasSpaceAbove ? objectTopY - panelGap - panelHeight : objectBottomY + panelGap
+  const left = Math.min(
+    Math.max(objectCenterX - panelWidth / 2, viewportMargin),
+    window.innerWidth - panelWidth - viewportMargin,
+  )
+  const top = Math.min(
+    Math.max(preferredTop, viewportMargin),
+    Math.max(viewportMargin, window.innerHeight - panelHeight - viewportMargin),
+  )
+
+  return { left, top }
+}
+
+const commentTextPlaceholder = 'Change this...'
+
+const sourcePointToPercent = (point: SourcePoint) => ({
+  left: `${(point.x / sourceImageSize.width) * 100}%`,
+  top: `${(point.y / sourceImageSize.height) * 100}%`,
+})
+
+const sourcePointToClient = (point: SourcePoint, imageFrameBounds: DOMRect) => ({
+  x: imageFrameBounds.left + (point.x / sourceImageSize.width) * imageFrameBounds.width,
+  y: imageFrameBounds.top + (point.y / sourceImageSize.height) * imageFrameBounds.height,
+})
+
+const clientPointToSource = (clientX: number, clientY: number, imageFrameBounds: DOMRect): SourcePoint => ({
+  x: ((clientX - imageFrameBounds.left) / imageFrameBounds.width) * sourceImageSize.width,
+  y: ((clientY - imageFrameBounds.top) / imageFrameBounds.height) * sourceImageSize.height,
+})
+
+const getStrokeBounds = (points: SourcePoint[]): SourceBounds | null => {
+  if (points.length === 0) {
+    return null
+  }
+
+  let minX = points[0].x
+  let maxX = points[0].x
+  let minY = points[0].y
+  let maxY = points[0].y
+
+  points.forEach((point) => {
+    minX = Math.min(minX, point.x)
+    maxX = Math.max(maxX, point.x)
+    minY = Math.min(minY, point.y)
+    maxY = Math.max(maxY, point.y)
+  })
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  }
+}
+
+const getCommentAnchorPoint = (commentAnnotation: CommentAnnotation): SourcePoint => {
+  if (commentAnnotation.kind === 'point' || !commentAnnotation.strokeBounds) {
+    return commentAnnotation.point
+  }
+
+  return {
+    x: commentAnnotation.strokeBounds.x + commentAnnotation.strokeBounds.width / 2,
+    y: commentAnnotation.strokeBounds.y,
+  }
+}
+
+const getCommentPanelPosition = (anchorPoint: SourcePoint, imageFrameBounds: DOMRect, panelHeight: number) => {
+  const panelWidth = 300
+  const viewportMargin = 10
+  const panelGap = 10
+  const anchorClient = sourcePointToClient(anchorPoint, imageFrameBounds)
+  const left = Math.min(
+    Math.max(anchorClient.x - panelWidth / 2, viewportMargin),
+    window.innerWidth - panelWidth - viewportMargin,
+  )
+  const top = Math.min(
+    Math.max(anchorClient.y - panelGap - panelHeight, viewportMargin),
+    Math.max(viewportMargin, window.innerHeight - panelHeight - viewportMargin),
+  )
+
+  return { left, top }
+}
+
+const getCommentStrokePathData = (points: SourcePoint[]) => {
+  if (points.length === 0) {
+    return ''
+  }
+
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ')
+}
+
+const getRectStrokePoints = (start: SourcePoint, end: SourcePoint): SourcePoint[] => {
+  const x0 = Math.min(start.x, end.x)
+  const x1 = Math.max(start.x, end.x)
+  const y0 = Math.min(start.y, end.y)
+  const y1 = Math.max(start.y, end.y)
+  const topLeft = { x: x0, y: y0 }
+  const topRight = { x: x1, y: y0 }
+  const bottomRight = { x: x1, y: y1 }
+  const bottomLeft = { x: x0, y: y1 }
+  return [topLeft, topRight, bottomRight, bottomLeft, topLeft]
+}
+
 function App() {
-  const [selectedTool, setSelectedTool] = useState<Tool>('select')
+  const [selectedTool, setSelectedTool] = useState<Tool>('commentDraw')
+  const [toolInstructionFadedOut, setToolInstructionFadedOut] = useState(false)
+  const toolInstructionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeBottomLeftMenu, setActiveBottomLeftMenu] = useState<BottomLeftMenu>(null)
   const [infoText, setInfoText] = useState(imageDescription)
   const [composerInput, setComposerInput] = useState('')
   const [composerChanges, setComposerChanges] = useState<string[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
   const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
+  const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
+  const [activeObjectPromptName, setActiveObjectPromptName] = useState<string | null>(null)
+  const [displayedObjectPromptName, setDisplayedObjectPromptName] = useState<string | null>(null)
+  const [isObjectPromptClosing, setIsObjectPromptClosing] = useState(false)
+  const [objectPromptTexts, setObjectPromptTexts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(imageObjects.map((imageObject) => [imageObject.name, getObjectPromptText(imageObject.name)])),
+  )
+  const [objectPromptPanelPosition, setObjectPromptPanelPosition] = useState({ left: 10, top: 10 })
+  const [objectPromptFromOffset, setObjectPromptFromOffset] = useState({ x: 0, y: 0 })
+  const [objectPromptAnimationKey, setObjectPromptAnimationKey] = useState(0)
   const [hoverTooltipPosition, setHoverTooltipPosition] = useState({ x: 0, y: 0 })
+  const [commentCursorPosition, setCommentCursorPosition] = useState({ x: 0, y: 0 })
+  const [showCommentCursorHint, setShowCommentCursorHint] = useState(false)
+  const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([])
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  const [isDrawingCommentStroke, setIsDrawingCommentStroke] = useState(false)
+  const [draftCommentStrokePoints, setDraftCommentStrokePoints] = useState<SourcePoint[]>([])
+  const [draftCommentBoxStart, setDraftCommentBoxStart] = useState<SourcePoint | null>(null)
+  const [draftCommentBoxEnd, setDraftCommentBoxEnd] = useState<SourcePoint | null>(null)
+  const [commentPanelPosition, setCommentPanelPosition] = useState({ left: 10, top: 10 })
   const [hoverCornerMarkerSize, setHoverCornerMarkerSize] = useState(36)
   const bottomLeftContainerRef = useRef<HTMLDivElement | null>(null)
   const infoTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const imageFrameRef = useRef<HTMLDivElement | null>(null)
+  const objectPromptPanelRef = useRef<HTMLDivElement | null>(null)
+  const objectPromptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const objectPromptCloseTimeoutRef = useRef<number | null>(null)
+  const commentPanelRef = useRef<HTMLDivElement | null>(null)
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const commentPointerIdRef = useRef<number | null>(null)
+  const commentStrokeStartPointRef = useRef<SourcePoint | null>(null)
+  const draftCommentStrokePointsRef = useRef<SourcePoint[]>([])
+  const commentBoxModeRef = useRef(false)
 
-  const hasComposerChanges = composerChanges.length > 0
+  const hasComposerChanges = composerChanges.length > 0 || commentAnnotations.length > 0
+
+  const finishClosingObjectPrompt = () => {
+    setDisplayedObjectPromptName(null)
+    setIsObjectPromptClosing(false)
+    objectPromptCloseTimeoutRef.current = null
+  }
+
+  const closeObjectPrompt = () => {
+    setActiveObjectPromptName(null)
+
+    if (displayedObjectPromptName === null) {
+      return
+    }
+
+    setIsObjectPromptClosing(true)
+
+    if (objectPromptCloseTimeoutRef.current !== null) {
+      window.clearTimeout(objectPromptCloseTimeoutRef.current)
+    }
+
+    objectPromptCloseTimeoutRef.current = window.setTimeout(finishClosingObjectPrompt, 100)
+  }
+
+  const openObjectPrompt = (objectName: string, imageFrameBounds: DOMRect) => {
+    const objectForPrompt = imageObjects.find((imageObject) => imageObject.name === objectName)
+    if (!objectForPrompt) {
+      return
+    }
+
+    if (objectPromptCloseTimeoutRef.current !== null) {
+      window.clearTimeout(objectPromptCloseTimeoutRef.current)
+      objectPromptCloseTimeoutRef.current = null
+    }
+
+    setIsObjectPromptClosing(false)
+    setActiveObjectPromptName(objectName)
+    setDisplayedObjectPromptName(objectName)
+    setObjectPromptAnimationKey((previous) => previous + 1)
+    setObjectPromptPanelPosition(getObjectPromptPanelPosition(objectForPrompt, imageFrameBounds, 130))
+  }
+
+  const openCommentPanel = (commentId: string, imageFrameBounds: DOMRect) => {
+    const commentAnnotation = commentAnnotations.find((comment) => comment.id === commentId)
+    if (!commentAnnotation) {
+      return
+    }
+
+    const nextPosition = getCommentPanelPosition(getCommentAnchorPoint(commentAnnotation), imageFrameBounds, 130)
+    setCommentPanelPosition(nextPosition)
+    setCommentAnnotations((previous) =>
+      previous.map((comment) =>
+        comment.id === commentId
+          ? { ...comment, panelState: 'expanded', panelPosition: nextPosition }
+          : { ...comment, panelState: 'collapsed' },
+      ),
+    )
+    setActiveCommentId(commentId)
+  }
+
+  const collapseActiveCommentPanel = () => {
+    if (!activeCommentId) {
+      return
+    }
+
+    setCommentAnnotations((previous) =>
+      previous.map((comment) => (comment.id === activeCommentId ? { ...comment, panelState: 'collapsed' } : comment)),
+    )
+    setActiveCommentId(null)
+  }
+
+  const createCommentAnnotation = (kind: 'point' | 'stroke', points: SourcePoint[], imageFrameBounds: DOMRect) => {
+    if (points.length === 0) {
+      return
+    }
+
+    const strokeBounds = kind === 'stroke' ? getStrokeBounds(points) : null
+    const anchorPoint =
+      kind === 'point' || !strokeBounds
+        ? points[0]
+        : { x: strokeBounds.x + strokeBounds.width / 2, y: strokeBounds.y }
+
+    const panelPosition = getCommentPanelPosition(anchorPoint, imageFrameBounds, 130)
+    const commentId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const commentAnnotation: CommentAnnotation = {
+      id: commentId,
+      kind,
+      point: anchorPoint,
+      strokePoints: kind === 'stroke' ? points : [],
+      strokeBounds,
+      text: '',
+      panelState: 'expanded',
+      panelPosition,
+    }
+
+    setCommentAnnotations((previous) =>
+      previous.map((comment) => ({ ...comment, panelState: 'collapsed' })).concat(commentAnnotation),
+    )
+    setCommentPanelPosition(panelPosition)
+    setActiveCommentId(commentId)
+  }
+
+  const handleDeleteComment = (commentId: string) => {
+    setCommentAnnotations((previous) => previous.filter((comment) => comment.id !== commentId))
+    setActiveCommentId((previous) => (previous === commentId ? null : previous))
+  }
+
+  const handleAddCommentToComposer = (commentId: string) => {
+    const commentAnnotation = commentAnnotations.find((comment) => comment.id === commentId)
+    if (!commentAnnotation) {
+      return
+    }
+
+    const trimmedCommentText = commentAnnotation.text.trim()
+    if (!trimmedCommentText) {
+      return
+    }
+
+    setComposerChanges((previous) => [...previous, trimmedCommentText])
+  }
+
+  const handleCommentInputKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || !activeComment) {
+      return
+    }
+
+    event.preventDefault()
+
+    const isEmptyComment = activeComment.text.trim().length === 0
+
+    if (isEmptyComment && activeComment.kind === 'point') {
+      setCommentAnnotations((previous) => previous.filter((comment) => comment.id !== activeComment.id))
+      setActiveCommentId(null)
+      return
+    }
+
+    setCommentAnnotations((previous) =>
+      previous.map((comment) => (comment.id === activeComment.id ? { ...comment, panelState: 'collapsed' } : comment)),
+    )
+    setActiveCommentId(null)
+  }
 
   const handleAddComposerChange = () => {
     const trimmedInput = composerInput.trim()
@@ -84,37 +449,183 @@ function App() {
     setComposerInput('')
   }
 
+  const handleRender = () => {
+    setCommentAnnotations([])
+    setActiveCommentId(null)
+    setIsDrawingCommentStroke(false)
+    setDraftCommentStrokePoints([])
+    setDraftCommentBoxStart(null)
+    setDraftCommentBoxEnd(null)
+    commentBoxModeRef.current = false
+    draftCommentStrokePointsRef.current = []
+    commentPointerIdRef.current = null
+    commentStrokeStartPointRef.current = null
+  }
+
   const toggleBottomLeftMenu = (menu: Exclude<BottomLeftMenu, null>) => {
     setActiveBottomLeftMenu((previous) => (previous === menu ? null : menu))
   }
 
   const handleImageMouseMove = (event: MouseEvent<HTMLDivElement>) => {
-    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
-    const localX = event.clientX - imageFrameBounds.left
-    const localY = event.clientY - imageFrameBounds.top
-    const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
-    const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
+    if (selectedTool === 'commentDraw') {
+      setCommentCursorPosition({ x: event.clientX, y: event.clientY })
+      setShowCommentCursorHint(true)
+    } else {
+      setShowCommentCursorHint(false)
+    }
 
-    const hoveredObject = imageObjects
-      .filter(
-        (imageObject) =>
-          sourceX >= imageObject.x &&
-          sourceX <= imageObject.x + imageObject.width &&
-          sourceY >= imageObject.y &&
-          sourceY <= imageObject.y + imageObject.height,
-      )
-      .sort((objectA, objectB) => objectA.width * objectA.height - objectB.width * objectB.height)[0]
+    if (selectedTool !== 'select') {
+      setHoveredObjectName(null)
+      return
+    }
+
+    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+    const hoveredObject = getSmallestObjectAtClientPoint(event.clientX, event.clientY, imageFrameBounds)
 
     setHoveredObjectName(hoveredObject?.name ?? null)
     setHoverTooltipPosition({ x: event.clientX, y: event.clientY })
     setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
   }
 
-  const handleImageMouseLeave = () => {
-    setHoveredObjectName(null)
+  const handleImageClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (selectedTool !== 'select') {
+      closeObjectPrompt()
+      return
+    }
+
+    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+    const clickedObject = getSmallestObjectAtClientPoint(event.clientX, event.clientY, imageFrameBounds)
+
+    if (!clickedObject) {
+      closeObjectPrompt()
+      return
+    }
+
+    openObjectPrompt(clickedObject.name, imageFrameBounds)
   }
 
-  const hoveredImageObject = hoveredObjectName ? imageObjects.find((imageObject) => imageObject.name === hoveredObjectName) ?? null : null
+  const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (selectedTool !== 'commentDraw') {
+      return
+    }
+
+    event.preventDefault()
+
+    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+    const sourcePoint = clientPointToSource(event.clientX, event.clientY, imageFrameBounds)
+    commentPointerIdRef.current = event.pointerId
+
+    if (event.altKey) {
+      commentBoxModeRef.current = true
+      setDraftCommentBoxStart(sourcePoint)
+      setDraftCommentBoxEnd(sourcePoint)
+      event.currentTarget.setPointerCapture(event.pointerId)
+      return
+    }
+
+    commentStrokeStartPointRef.current = sourcePoint
+    draftCommentStrokePointsRef.current = [sourcePoint]
+    setIsDrawingCommentStroke(true)
+    setDraftCommentStrokePoints(draftCommentStrokePointsRef.current)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleImagePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (selectedTool !== 'commentDraw' || commentPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+    const nextPoint = clientPointToSource(event.clientX, event.clientY, imageFrameBounds)
+
+    if (commentBoxModeRef.current) {
+      setDraftCommentBoxEnd(nextPoint)
+      return
+    }
+
+    draftCommentStrokePointsRef.current = [...draftCommentStrokePointsRef.current, nextPoint]
+    setDraftCommentStrokePoints(draftCommentStrokePointsRef.current)
+  }
+
+  const handleImagePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (selectedTool !== 'commentDraw' || commentPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+    const endPoint = clientPointToSource(event.clientX, event.clientY, imageFrameBounds)
+
+    if (commentBoxModeRef.current) {
+      const start = draftCommentBoxStart ?? endPoint
+      const rectPoints = getRectStrokePoints(start, endPoint)
+      const movement = Math.hypot(endPoint.x - start.x, endPoint.y - start.y)
+      if (movement >= 12) {
+        createCommentAnnotation('stroke', rectPoints, imageFrameBounds)
+      }
+      commentBoxModeRef.current = false
+      setDraftCommentBoxStart(null)
+      setDraftCommentBoxEnd(null)
+      commentPointerIdRef.current = null
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      return
+    }
+
+    const startPoint = commentStrokeStartPointRef.current ?? endPoint
+    const movement = Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y)
+    const completedStrokePoints = [...draftCommentStrokePointsRef.current, endPoint]
+    const shouldCreateStroke = movement >= 12
+
+    if (shouldCreateStroke && completedStrokePoints.length > 1) {
+      createCommentAnnotation('stroke', completedStrokePoints, imageFrameBounds)
+    } else {
+      createCommentAnnotation('point', [startPoint], imageFrameBounds)
+    }
+
+    setIsDrawingCommentStroke(false)
+    setDraftCommentStrokePoints([])
+    commentPointerIdRef.current = null
+    commentStrokeStartPointRef.current = null
+    draftCommentStrokePointsRef.current = []
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleImagePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
+    if (commentPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    setIsDrawingCommentStroke(false)
+    setDraftCommentStrokePoints([])
+    commentBoxModeRef.current = false
+    setDraftCommentBoxStart(null)
+    setDraftCommentBoxEnd(null)
+    commentPointerIdRef.current = null
+    commentStrokeStartPointRef.current = null
+    draftCommentStrokePointsRef.current = []
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleImageMouseLeave = () => {
+    setHoveredObjectName(null)
+    setShowCommentCursorHint(false)
+  }
+
+  const selectedImageObject = activeObjectPromptName
+    ? imageObjects.find((imageObject) => imageObject.name === activeObjectPromptName) ?? null
+    : null
+  const transientHighlightedObjectName = hoveredObjectListName ?? hoveredObjectName
+  const transientHighlightedObject = transientHighlightedObjectName
+    ? imageObjects.find((imageObject) => imageObject.name === transientHighlightedObjectName) ?? null
+    : null
+  const displayedObjectPrompt = displayedObjectPromptName
+    ? imageObjects.find((imageObject) => imageObject.name === displayedObjectPromptName) ?? null
+    : null
+  const displayedObjectPromptText = displayedObjectPrompt
+    ? (objectPromptTexts[displayedObjectPrompt.name] ?? getObjectPromptText(displayedObjectPrompt.name))
+    : ''
+  const activeComment = activeCommentId ? commentAnnotations.find((comment) => comment.id === activeCommentId) ?? null : null
 
   useLayoutEffect(() => {
     if (activeBottomLeftMenu !== 'info' || !infoTextareaRef.current) {
@@ -124,6 +635,106 @@ function App() {
     infoTextareaRef.current.style.height = '0px'
     infoTextareaRef.current.style.height = `${infoTextareaRef.current.scrollHeight}px`
   }, [infoText, activeBottomLeftMenu])
+
+  useLayoutEffect(() => {
+    if (!displayedObjectPrompt || !objectPromptTextareaRef.current) {
+      return
+    }
+
+    objectPromptTextareaRef.current.style.height = '0px'
+    objectPromptTextareaRef.current.style.height = `${objectPromptTextareaRef.current.scrollHeight}px`
+  }, [displayedObjectPrompt, displayedObjectPromptText])
+
+  useLayoutEffect(() => {
+    if (!activeComment || !commentTextareaRef.current || !imageFrameRef.current) {
+      return
+    }
+
+    commentTextareaRef.current.style.height = '0px'
+    commentTextareaRef.current.style.height = `${commentTextareaRef.current.scrollHeight}px`
+
+    const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
+    const panelHeight = Math.max(130, commentTextareaRef.current.scrollHeight + 30)
+    const nextPanelPosition = getCommentPanelPosition(getCommentAnchorPoint(activeComment), imageFrameBounds, panelHeight)
+    setCommentPanelPosition(nextPanelPosition)
+    setCommentAnnotations((previous) =>
+      previous.map((comment) => (comment.id === activeComment.id ? { ...comment, panelPosition: nextPanelPosition } : comment)),
+    )
+  }, [activeComment?.id, activeComment?.text])
+
+  useEffect(() => {
+    if (!activeComment || !commentTextareaRef.current) {
+      return
+    }
+
+    commentTextareaRef.current.focus()
+    commentTextareaRef.current.select()
+  }, [activeComment?.id])
+
+  useEffect(() => {
+    if (activeBottomLeftMenu !== 'objects') {
+      setHoveredObjectListName(null)
+    }
+  }, [activeBottomLeftMenu])
+
+  useEffect(() => {
+    if (selectedTool !== 'select') {
+      setHoveredObjectName(null)
+      closeObjectPrompt()
+    }
+
+    if (selectedTool !== 'commentDraw') {
+      setShowCommentCursorHint(false)
+      setIsDrawingCommentStroke(false)
+      setDraftCommentStrokePoints([])
+      setDraftCommentBoxStart(null)
+      setDraftCommentBoxEnd(null)
+      commentBoxModeRef.current = false
+      draftCommentStrokePointsRef.current = []
+      commentPointerIdRef.current = null
+      commentStrokeStartPointRef.current = null
+      collapseActiveCommentPanel()
+    }
+  }, [selectedTool])
+
+  useEffect(() => {
+    setToolInstructionFadedOut(false)
+    if (toolInstructionTimeoutRef.current !== null) {
+      clearTimeout(toolInstructionTimeoutRef.current)
+      toolInstructionTimeoutRef.current = null
+    }
+    toolInstructionTimeoutRef.current = setTimeout(() => {
+      setToolInstructionFadedOut(true)
+      toolInstructionTimeoutRef.current = null
+    }, 5000)
+    return () => {
+      if (toolInstructionTimeoutRef.current !== null) {
+        clearTimeout(toolInstructionTimeoutRef.current)
+      }
+    }
+  }, [selectedTool])
+
+  useLayoutEffect(() => {
+    if (!displayedObjectPrompt || !imageFrameRef.current || !objectPromptPanelRef.current) {
+      return
+    }
+
+    const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
+    const measuredPanelHeight = objectPromptPanelRef.current.offsetHeight
+    const nextPosition = getObjectPromptPanelPosition(displayedObjectPrompt, imageFrameBounds, measuredPanelHeight)
+    const objectCenterX =
+      imageFrameBounds.left + ((displayedObjectPrompt.x + displayedObjectPrompt.width / 2) / sourceImageSize.width) * imageFrameBounds.width
+    const objectCenterY =
+      imageFrameBounds.top + ((displayedObjectPrompt.y + displayedObjectPrompt.height / 2) / sourceImageSize.height) * imageFrameBounds.height
+    const panelCenterX = nextPosition.left + 100
+    const panelCenterY = nextPosition.top + measuredPanelHeight / 2
+    const nextFromOffset = clampVectorMagnitude(objectCenterX - panelCenterX, objectCenterY - panelCenterY, 100)
+
+    setObjectPromptFromOffset(nextFromOffset)
+    setObjectPromptPanelPosition((previous) =>
+      previous.left === nextPosition.left && previous.top === nextPosition.top ? previous : nextPosition,
+    )
+  }, [displayedObjectPrompt, objectPromptAnimationKey])
 
   useEffect(() => {
     if (activeBottomLeftMenu === null) {
@@ -149,6 +760,60 @@ function App() {
   }, [activeBottomLeftMenu])
 
   useEffect(() => {
+    if (!displayedObjectPrompt) {
+      return
+    }
+
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const eventTarget = event.target
+      if (!(eventTarget instanceof Node)) {
+        return
+      }
+
+      if (!objectPromptPanelRef.current?.contains(eventTarget)) {
+        closeObjectPrompt()
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [displayedObjectPrompt])
+
+  useEffect(() => {
+    if (!activeComment) {
+      return
+    }
+
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const eventTarget = event.target
+      if (!(eventTarget instanceof Node)) {
+        return
+      }
+
+      if (!commentPanelRef.current?.contains(eventTarget)) {
+        collapseActiveCommentPanel()
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [activeComment?.id])
+
+  useEffect(() => {
+    return () => {
+      if (objectPromptCloseTimeoutRef.current !== null) {
+        window.clearTimeout(objectPromptCloseTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const isToggleShortcut = (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'o'
 
@@ -165,6 +830,42 @@ function App() {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      if (displayedObjectPromptName !== null) {
+        event.preventDefault()
+        closeObjectPrompt()
+        return
+      }
+
+      if (activeCommentId !== null) {
+        event.preventDefault()
+        collapseActiveCommentPanel()
+        return
+      }
+
+      if (activeBottomLeftMenu !== null) {
+        event.preventDefault()
+        setActiveBottomLeftMenu(null)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [
+    displayedObjectPromptName,
+    activeCommentId,
+    activeBottomLeftMenu,
+    closeObjectPrompt,
+    collapseActiveCommentPanel,
+  ])
 
   return (
     <>
@@ -187,27 +888,33 @@ function App() {
           <img className="glyph-icon" src={moreGlyph} alt="" />
         </button>
       </nav>
+      <p
+        className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}`}
+        aria-live="polite"
+      >
+        {TOOL_INSTRUCTIONS[selectedTool]}
+      </p>
       <nav className="tool-palette" aria-label="Tools">
         <button
           className={`tool-button${selectedTool === 'select' ? ' selected' : ''}`}
           type="button"
-          aria-label="Select"
+          aria-label="Move"
           aria-pressed={selectedTool === 'select'}
           onClick={() => setSelectedTool('select')}
         >
-          <svg className="tool-glyph-svg tool-glyph-select" viewBox="0 0 7 13" aria-hidden="true">
+          <svg className="tool-glyph-svg tool-glyph-move" viewBox="0 0 12 16" aria-hidden="true">
             <path
-              d="M5.18555 11.9355C5.01367 12.0059 4.8418 12.0273 4.66992 12C4.50195 11.9766 4.34961 11.9141 4.21289 11.8125C4.07617 11.7109 3.97266 11.5762 3.90234 11.4082L1.99219 6.67969L2.78906 6.9375L0.832031 9.11719C0.730469 9.23828 0.613281 9.30078 0.480469 9.30469C0.351562 9.30469 0.238281 9.26172 0.140625 9.17578C0.046875 9.08594 0.00195312 8.96094 0.00585938 8.80078L0.111328 0.457031C0.115234 0.316406 0.160156 0.205078 0.246094 0.123047C0.332031 0.0410156 0.433594 0.00195312 0.550781 0.00585938C0.671875 0.00585938 0.783203 0.0566406 0.884766 0.158203L6.76172 6.14648C6.87109 6.25586 6.92383 6.375 6.91992 6.50391C6.91602 6.63281 6.86719 6.74219 6.77344 6.83203C6.68359 6.91797 6.56445 6.95508 6.41602 6.94336L3.36914 6.76758L3.75 6.04102L5.71875 10.6641C5.79297 10.832 5.81641 11 5.78906 11.168C5.76172 11.3398 5.69531 11.4941 5.58984 11.6309C5.48828 11.7676 5.35352 11.8691 5.18555 11.9355Z"
+              d="M5.29102 11.2236L2.00391 14.502C1.78711 14.7188 1.56152 14.8564 1.32715 14.915C1.09277 14.9795 0.875977 14.9795 0.676758 14.915C0.477539 14.8506 0.313477 14.7305 0.18457 14.5547C0.0615234 14.3789 0 14.1621 0 13.9043V1.23926C0 0.952148 0.0644531 0.711914 0.193359 0.518555C0.328125 0.325195 0.498047 0.19043 0.703125 0.114258C0.914062 0.0380859 1.13379 0.0263672 1.3623 0.0791016C1.59082 0.125977 1.80469 0.249023 2.00391 0.448242L10.9336 9.37793C11.1152 9.56543 11.2236 9.76465 11.2588 9.97559C11.2939 10.1865 11.2617 10.3887 11.1621 10.582C11.0684 10.7695 10.916 10.9248 10.7051 11.0479C10.5 11.165 10.2422 11.2236 9.93164 11.2236H5.29102Z"
               fill="currentColor"
             />
           </svg>
         </button>
         <button
-          className={`tool-button${selectedTool === 'comment' ? ' selected' : ''}`}
+          className={`tool-button${selectedTool === 'commentDraw' ? ' selected' : ''}`}
           type="button"
-          aria-label="Comment"
-          aria-pressed={selectedTool === 'comment'}
-          onClick={() => setSelectedTool('comment')}
+          aria-label="Comment & Draw"
+          aria-pressed={selectedTool === 'commentDraw'}
+          onClick={() => setSelectedTool('commentDraw')}
         >
           <svg className="tool-glyph-svg tool-glyph-comment" viewBox="0 0 16 14" aria-hidden="true">
             <path
@@ -216,20 +923,6 @@ function App() {
             />
             <path
               d="M12.6927 0C12.8404 4.47267e-05 12.9312 0.089613 12.9653 0.268294C13.0448 0.781192 13.1385 1.20482 13.2464 1.53913C13.3544 1.86772 13.5026 2.13292 13.6901 2.3347C13.8776 2.53069 14.1332 2.68645 14.457 2.80175C14.7866 2.91129 15.2157 3.00386 15.7442 3.07881C15.9147 3.10187 16 3.19987 16 3.37283C16 3.53419 15.9146 3.62629 15.7442 3.64934C15.21 3.73005 14.7809 3.82507 14.457 3.93461C14.1331 4.04415 13.8776 4.19743 13.6901 4.39345C13.5083 4.58942 13.366 4.85721 13.2637 5.19723C13.1614 5.53162 13.0619 5.95849 12.9653 6.47738C12.9539 6.5523 12.9201 6.61304 12.8633 6.65916C12.8362 6.68352 12.8071 6.70023 12.7769 6.71172L12.7758 6.71282L12.7753 6.71227C12.7488 6.72212 12.7216 6.72814 12.6927 6.72815C12.6076 6.72815 12.5393 6.70517 12.4882 6.65916C12.437 6.61304 12.4086 6.54933 12.4029 6.46861C12.3176 5.94977 12.221 5.52584 12.1131 5.19723C12.0108 4.86292 11.8626 4.59765 11.6694 4.40166C11.6438 4.37405 11.6167 4.3475 11.5885 4.32172C11.4105 4.15922 11.182 4.03291 10.9025 3.94337C10.5786 3.83384 10.1553 3.73581 9.6326 3.64934C9.49316 3.62652 9.40963 3.56382 9.38056 3.46154C9.37804 3.45304 9.37583 3.44431 9.37408 3.43525C9.37319 3.43038 9.37205 3.4255 9.37138 3.42047C9.36924 3.40535 9.36815 3.38948 9.36814 3.37283C9.36814 3.3306 9.37329 3.2928 9.3838 3.25949C9.38481 3.25628 9.38646 3.25332 9.38757 3.25019C9.3916 3.23884 9.39629 3.22813 9.40161 3.21788C9.40495 3.21143 9.40855 3.20528 9.4124 3.19926C9.417 3.19208 9.42165 3.18503 9.42697 3.17846C9.43102 3.17346 9.43546 3.16886 9.43992 3.16422C9.44693 3.15695 9.45456 3.15036 9.46259 3.14396C9.4674 3.14014 9.47199 3.13598 9.47716 3.13247C9.48449 3.12749 9.49231 3.12312 9.50037 3.11878C9.50688 3.11528 9.51336 3.11147 9.52034 3.10837C9.53587 3.1015 9.55262 3.09571 9.57053 3.09085L9.6326 3.07881C9.75901 3.06088 9.8793 3.04132 9.99366 3.02131C10.219 2.9821 10.4206 2.93789 10.5992 2.891C10.6761 2.87072 10.749 2.85076 10.8172 2.82913C10.8462 2.81996 10.8751 2.81118 10.9025 2.80175C11.2264 2.68645 11.4819 2.53071 11.6694 2.3347C11.857 2.13868 12.0021 1.87651 12.1044 1.54789C12.2067 1.21353 12.3063 0.784097 12.4029 0.259533C12.4313 0.0865729 12.5279 0 12.6927 0Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
-        <button
-          className={`tool-button${selectedTool === 'draw' ? ' selected' : ''}`}
-          type="button"
-          aria-label="Draw"
-          aria-pressed={selectedTool === 'draw'}
-          onClick={() => setSelectedTool('draw')}
-        >
-          <svg className="tool-glyph-svg tool-glyph-draw" viewBox="0 0 15 14" aria-hidden="true">
-            <path
-              d="M0.177734 8.50488C0.0592448 8.37728 0 8.23145 0 8.06738C0 7.89876 0.0615234 7.75065 0.18457 7.62305L1.3877 6.41992C2.59993 5.20768 3.64583 4.18457 4.52539 3.35059C5.40495 2.5166 6.15462 1.85124 6.77441 1.35449C7.39421 0.85319 7.92285 0.502279 8.36035 0.301758C8.79785 0.101237 9.17839 0.0328776 9.50195 0.0966797C9.82552 0.160482 10.1286 0.333659 10.4111 0.616211C10.6982 0.90332 10.8555 1.22461 10.8828 1.58008C10.9102 1.93099 10.8122 2.33659 10.5889 2.79688C10.3656 3.25716 10.0238 3.79264 9.56348 4.40332C9.10319 5.00944 8.52897 5.70898 7.84082 6.50195C7.0752 7.38151 6.47819 8.11296 6.0498 8.69629C5.62142 9.27507 5.3457 9.73535 5.22266 10.0771C5.10417 10.4144 5.1224 10.6582 5.27734 10.8086C5.40495 10.9408 5.60319 10.9567 5.87207 10.8564C6.14551 10.7562 6.50553 10.5306 6.95215 10.1797C7.40332 9.82422 7.96387 9.33203 8.63379 8.70312C9.37663 7.99674 10.026 7.44987 10.582 7.0625C11.138 6.67057 11.6165 6.44727 12.0176 6.39258C12.4232 6.33333 12.7718 6.45182 13.0635 6.74805C13.2822 6.96224 13.3984 7.21517 13.4121 7.50684C13.4258 7.79395 13.3483 8.13346 13.1797 8.52539C13.0156 8.91732 12.7718 9.37988 12.4482 9.91309C12.2386 10.264 12.0632 10.5579 11.9219 10.7949C11.7806 11.0273 11.6826 11.2074 11.6279 11.335C11.5778 11.458 11.5755 11.5423 11.6211 11.5879C11.6621 11.6289 11.7396 11.6198 11.8535 11.5605C11.9674 11.4967 12.1224 11.3851 12.3184 11.2256C12.5189 11.0615 12.765 10.8451 13.0566 10.5762C13.1842 10.4531 13.3301 10.3916 13.4941 10.3916C13.6628 10.3916 13.8086 10.4508 13.9316 10.5693C14.0592 10.6969 14.1185 10.8473 14.1094 11.0205C14.1048 11.1937 14.0273 11.3532 13.877 11.499C13.2161 12.1735 12.6237 12.5996 12.0996 12.7773C11.5755 12.9551 11.1494 12.8799 10.8213 12.5518C10.6071 12.3421 10.4886 12.1051 10.4658 11.8408C10.443 11.5765 10.4818 11.3008 10.582 11.0137C10.6823 10.722 10.8145 10.4258 10.9785 10.125C11.1426 9.82422 11.3066 9.53255 11.4707 9.25C11.7305 8.80339 11.9401 8.44792 12.0996 8.18359C12.2637 7.91471 12.2865 7.71875 12.168 7.5957C12.0996 7.5319 11.9902 7.53418 11.8398 7.60254C11.694 7.66634 11.5072 7.78939 11.2793 7.97168C11.056 8.15397 10.7962 8.38411 10.5 8.66211C10.2083 8.93555 9.88021 9.24772 9.51562 9.59863C9.16016 9.94499 8.79557 10.2799 8.42188 10.6035C8.04818 10.9271 7.67676 11.2119 7.30762 11.458C6.93848 11.7041 6.58073 11.891 6.23438 12.0186C5.88802 12.1462 5.5599 12.1872 5.25 12.1416C4.9401 12.1006 4.65527 11.9525 4.39551 11.6973C4.10384 11.4056 3.94206 11.082 3.91016 10.7266C3.88281 10.3665 3.95117 9.986 4.11523 9.58496C4.2793 9.17936 4.50716 8.76237 4.79883 8.33398C5.09505 7.90104 5.42546 7.46354 5.79004 7.02148C6.15918 6.57487 6.5306 6.13281 6.9043 5.69531C7.36003 5.15755 7.77702 4.66309 8.15527 4.21191C8.53353 3.75618 8.84798 3.34831 9.09863 2.98828C9.35384 2.62826 9.52246 2.32292 9.60449 2.07227C9.69108 1.82161 9.66829 1.63021 9.53613 1.49805C9.3903 1.34766 9.18294 1.31576 8.91406 1.40234C8.64518 1.48438 8.31022 1.6735 7.90918 1.96973C7.50814 2.26595 7.03418 2.66699 6.4873 3.17285C5.94499 3.67415 5.32292 4.27116 4.62109 4.96387C3.91927 5.65202 3.13314 6.43132 2.2627 7.30176L1.05957 8.50488C0.936523 8.62793 0.79069 8.69173 0.62207 8.69629C0.453451 8.69629 0.305339 8.63249 0.177734 8.50488Z"
               fill="currentColor"
             />
           </svg>
@@ -257,7 +950,9 @@ function App() {
                 ? ' bottom-left-panel--info'
                 : activeBottomLeftMenu === 'objects'
                   ? ' bottom-left-panel--objects'
-                  : ''
+                  : activeBottomLeftMenu === 'effects'
+                    ? ' bottom-left-panel--effects'
+                    : ''
             }`}
             aria-label={`${activeBottomLeftMenu} menu`}
           >
@@ -271,14 +966,35 @@ function App() {
             )}
 
             {activeBottomLeftMenu === 'objects' && (
-              <div className="objects-list">
-                {objectThumbnails.map((objectThumbnail) => (
-                  <button key={objectThumbnail.name} className="object-row" type="button">
+              <>
+                <div className="objects-add-buttons">
+                  <button className="objects-add-button" type="button" aria-label="Add Text">
+                    <img className="objects-add-button-glyph" src={textGlyph} alt="" aria-hidden="true" />
+                    <span className="objects-add-button-label">Add Text</span>
+                  </button>
+                  <button className="objects-add-button" type="button" aria-label="Add Object">
+                    <img className="objects-add-button-glyph" src={objectGlyph} alt="" aria-hidden="true" />
+                    <span className="objects-add-button-label">Add Object</span>
+                  </button>
+                </div>
+                <div className="objects-list">
+                {objectThumbnailsWithObjectName.map((objectThumbnail) => (
+                  <button
+                    key={objectThumbnail.name}
+                    className="object-row"
+                    type="button"
+                    onMouseEnter={() => setHoveredObjectListName(objectThumbnail.objectName)}
+                    onMouseLeave={() => setHoveredObjectListName(null)}
+                  >
                     <img className="object-thumb" src={objectThumbnail.src} alt={objectThumbnail.name} />
                     <span className="object-name">{objectThumbnail.name}</span>
+                    <span className="object-row-trash-wrap" aria-hidden="true">
+                      <img className="object-row-trash" src={trashGlyph} alt="Delete" aria-hidden="true" />
+                    </span>
                   </button>
                 ))}
-              </div>
+                </div>
+              </>
             )}
 
             {activeBottomLeftMenu === 'effects' && (
@@ -407,13 +1123,24 @@ function App() {
           type="button"
           aria-label="Render"
           disabled={!hasComposerChanges}
+          onClick={handleRender}
         >
           Render
         </button>
       </nav>
       <main className="image-stage">
-        <div className="image-frame" onMouseMove={handleImageMouseMove} onMouseLeave={handleImageMouseLeave}>
-          <img className="hero-image" src={montBlancTrail} alt="Mont Blanc trail landscape" />
+        <div
+          ref={imageFrameRef}
+          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}`}
+          onMouseMove={handleImageMouseMove}
+          onMouseLeave={handleImageMouseLeave}
+          onClick={handleImageClick}
+          onPointerDown={handleImagePointerDown}
+          onPointerMove={handleImagePointerMove}
+          onPointerUp={handleImagePointerUp}
+          onPointerCancel={handleImagePointerCancel}
+        >
+          <img className="hero-image" src={montBlancTrail} alt="Mont Blanc trail landscape" draggable={false} />
           <div className="object-overlays" aria-label="Object overlays">
             {showObjectOverlays &&
               imageObjects.map((imageObject) => (
@@ -425,34 +1152,129 @@ function App() {
                   <span className="object-box-label">{imageObject.name}</span>
                 </div>
               ))}
-            {hoveredImageObject && (
-              <div className="object-hover-corners" style={getObjectBoxStyle(hoveredImageObject)}>
+            {selectedImageObject && (
+              <div className="object-hover-corners" style={getObjectBoxStyle(selectedImageObject)}>
                 <img
-                  className="object-corner-marker object-corner-marker-tl"
+                  className="object-corner-marker object-corner-marker--static object-corner-marker-tl"
                   src={boundingBoxTl}
                   alt=""
                   style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
                 />
                 <img
-                  className="object-corner-marker object-corner-marker-tr"
+                  className="object-corner-marker object-corner-marker--static object-corner-marker-tr"
                   src={boundingBoxTr}
                   alt=""
                   style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
                 />
                 <img
-                  className="object-corner-marker object-corner-marker-bl"
+                  className="object-corner-marker object-corner-marker--static object-corner-marker-bl"
                   src={boundingBoxBl}
                   alt=""
                   style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
                 />
                 <img
-                  className="object-corner-marker object-corner-marker-br"
+                  className="object-corner-marker object-corner-marker--static object-corner-marker-br"
                   src={boundingBoxBr}
                   alt=""
                   style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
                 />
               </div>
             )}
+            {transientHighlightedObject && (!selectedImageObject || transientHighlightedObject.name !== selectedImageObject.name) && (() => {
+              const isFromList = transientHighlightedObjectName === hoveredObjectListName
+              const staticClass = isFromList ? ' object-corner-marker--static' : ''
+              return (
+                <div key={transientHighlightedObject.name} className="object-hover-corners" style={getObjectBoxStyle(transientHighlightedObject)}>
+                  <img
+                    className={`object-corner-marker object-corner-marker-tl${staticClass}`}
+                    src={boundingBoxTl}
+                    alt=""
+                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  />
+                  <img
+                    className={`object-corner-marker object-corner-marker-tr${staticClass}`}
+                    src={boundingBoxTr}
+                    alt=""
+                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  />
+                  <img
+                    className={`object-corner-marker object-corner-marker-bl${staticClass}`}
+                    src={boundingBoxBl}
+                    alt=""
+                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  />
+                  <img
+                    className={`object-corner-marker object-corner-marker-br${staticClass}`}
+                    src={boundingBoxBr}
+                    alt=""
+                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  />
+                </div>
+              )
+            })()}
+          </div>
+          <div className="comment-layer" aria-label="Comment annotations">
+            <svg className="comment-strokes" viewBox={`0 0 ${sourceImageSize.width} ${sourceImageSize.height}`} preserveAspectRatio="none" aria-hidden="true">
+              {commentAnnotations
+                .filter((comment) => comment.kind === 'stroke' && comment.strokePoints.length > 1)
+                .map((comment) => (
+                  <path
+                    key={comment.id}
+                    className="comment-stroke"
+                    d={getCommentStrokePathData(comment.strokePoints)}
+                    onPointerDown={(event) => {
+                      event.stopPropagation()
+                      if (!imageFrameRef.current) {
+                        return
+                      }
+                      openCommentPanel(comment.id, imageFrameRef.current.getBoundingClientRect())
+                    }}
+                  />
+                ))}
+              {isDrawingCommentStroke && draftCommentStrokePoints.length > 1 && (
+                <path className="comment-stroke comment-stroke--draft" d={getCommentStrokePathData(draftCommentStrokePoints)} />
+              )}
+              {draftCommentBoxStart !== null && draftCommentBoxEnd !== null && (
+                <path
+                  className="comment-stroke comment-stroke--draft"
+                  d={getCommentStrokePathData(getRectStrokePoints(draftCommentBoxStart, draftCommentBoxEnd))}
+                />
+              )}
+            </svg>
+            {commentAnnotations
+              .filter((comment) => comment.kind === 'point')
+              .map((comment) => (
+                <button
+                  key={comment.id}
+                  className={`comment-point${comment.panelState === 'expanded' ? ' active' : ''}`}
+                  style={sourcePointToPercent(comment.point)}
+                  type="button"
+                  onClick={() => {
+                    if (!imageFrameRef.current) {
+                      return
+                    }
+                    openCommentPanel(comment.id, imageFrameRef.current.getBoundingClientRect())
+                  }}
+                />
+              ))}
+            {commentAnnotations
+              .filter((comment) => comment.panelState === 'collapsed' && comment.text.trim().length > 0)
+              .map((comment) => (
+                <button
+                  key={`${comment.id}-collapsed`}
+                  className="comment-collapsed-chip"
+                  style={sourcePointToPercent(getCommentAnchorPoint(comment))}
+                  type="button"
+                  onClick={() => {
+                    if (!imageFrameRef.current) {
+                      return
+                    }
+                    openCommentPanel(comment.id, imageFrameRef.current.getBoundingClientRect())
+                  }}
+                >
+                  {comment.text.trim().slice(0, 10)}
+                </button>
+              ))}
           </div>
         </div>
         {hoveredObjectName && (
@@ -465,6 +1287,120 @@ function App() {
           >
             {hoveredObjectName}
           </div>
+        )}
+        {selectedTool === 'commentDraw' && showCommentCursorHint && (
+          <div
+            className="comment-cursor-hint"
+            style={{
+              left: `${commentCursorPosition.x + 29}px`,
+              top: `${commentCursorPosition.y - 12}px`,
+            }}
+          >
+            Change this...
+          </div>
+        )}
+        {activeComment && (
+          <section
+            ref={commentPanelRef}
+            className="comment-panel"
+            style={{
+              left: `${commentPanelPosition.left}px`,
+              top: `${commentPanelPosition.top}px`,
+            }}
+            aria-label="Comment panel"
+          >
+            <div className="comment-panel-content">
+              <textarea
+                ref={commentTextareaRef}
+                className="comment-panel-input"
+                placeholder={commentTextPlaceholder}
+                value={activeComment.text}
+                onKeyDown={handleCommentInputKeyDown}
+                onChange={(event) =>
+                  setCommentAnnotations((previous) =>
+                    previous.map((comment) => (comment.id === activeComment.id ? { ...comment, text: event.target.value } : comment)),
+                  )
+                }
+              />
+              <div className="comment-panel-actions">
+                <button
+                  className="object-prompt-glyph-button"
+                  type="button"
+                  aria-label="Add comment"
+                  onClick={() => handleAddCommentToComposer(activeComment.id)}
+                >
+                  <svg className="object-prompt-glyph" viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
+                    <path
+                      d="M10.3555 14.082C10.3555 14.2227 10.3027 14.3438 10.1973 14.4453C10.0957 14.5508 9.97266 14.6035 9.82812 14.6035C9.68359 14.6035 9.56055 14.5508 9.45898 14.4453C9.35742 14.3438 9.30664 14.2227 9.30664 14.082V5.45703C9.30664 5.31641 9.35742 5.19531 9.45898 5.09375C9.56055 4.98828 9.68359 4.93555 9.82812 4.93555C9.97266 4.93555 10.0957 4.98828 10.1973 5.09375C10.3027 5.19531 10.3555 5.31641 10.3555 5.45703V14.082ZM5.51562 10.291C5.375 10.291 5.25195 10.2402 5.14648 10.1387C5.04492 10.0371 4.99414 9.91406 4.99414 9.76953C4.99414 9.625 5.04492 9.50195 5.14648 9.40039C5.25195 9.29492 5.375 9.24219 5.51562 9.24219H14.1406C14.2812 9.24219 14.4023 9.29492 14.5039 9.40039C14.6094 9.50195 14.6621 9.625 14.6621 9.76953C14.6621 9.91406 14.6094 10.0371 14.5039 10.1387C14.4023 10.2402 14.2812 10.291 14.1406 10.291H5.51562Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
+                <button
+                  className="object-prompt-glyph-button"
+                  type="button"
+                  aria-label="Delete comment"
+                  onClick={() => handleDeleteComment(activeComment.id)}
+                >
+                  <svg className="object-prompt-glyph object-prompt-glyph-trash" viewBox="0 0 14 16" aria-hidden="true">
+                    <path
+                      d="M4.73047 13.1104C4.58919 13.1104 4.47526 13.0716 4.38867 12.9941C4.30208 12.9121 4.25651 12.8027 4.25195 12.666L4.04688 5.50195C4.04232 5.36979 4.08333 5.2627 4.16992 5.18066C4.25651 5.09408 4.37044 5.05078 4.51172 5.05078C4.65299 5.05078 4.76693 5.0918 4.85352 5.17383C4.9401 5.25586 4.9834 5.36296 4.9834 5.49512L5.19531 12.6592C5.19531 12.7959 5.15202 12.9053 5.06543 12.9873C4.9834 13.0693 4.87174 13.1104 4.73047 13.1104ZM6.74023 13.1104C6.59896 13.1104 6.48275 13.0693 6.3916 12.9873C6.30501 12.9053 6.26172 12.7982 6.26172 12.666V5.50195C6.26172 5.36979 6.30501 5.2627 6.3916 5.18066C6.48275 5.09408 6.59896 5.05078 6.74023 5.05078C6.88607 5.05078 7.00228 5.09408 7.08887 5.18066C7.18001 5.2627 7.22559 5.36979 7.22559 5.50195V12.666C7.22559 12.7982 7.18001 12.9053 7.08887 12.9873C7.00228 13.0693 6.88607 13.1104 6.74023 13.1104ZM8.75684 13.1104C8.611 13.1104 8.49479 13.0693 8.4082 12.9873C8.32617 12.9053 8.28743 12.7959 8.29199 12.6592L8.49707 5.50195C8.50163 5.36523 8.5472 5.25586 8.63379 5.17383C8.72038 5.0918 8.83203 5.05078 8.96875 5.05078C9.11458 5.05078 9.22852 5.09408 9.31055 5.18066C9.39714 5.2627 9.43815 5.36979 9.43359 5.50195L9.22852 12.666C9.22396 12.8027 9.17839 12.9121 9.0918 12.9941C9.00521 13.0716 8.89355 13.1104 8.75684 13.1104ZM3.63672 3.14355V1.66699C3.63672 1.1429 3.79395 0.735026 4.1084 0.443359C4.42741 0.147135 4.86947 -0.000976562 5.43457 -0.000976562H8.03223C8.59733 -0.000976562 9.03939 0.147135 9.3584 0.443359C9.67741 0.735026 9.83691 1.1429 9.83691 1.66699V3.14355H8.57227V1.72852C8.57227 1.55534 8.5153 1.41634 8.40137 1.31152C8.28743 1.20215 8.13477 1.14746 7.94336 1.14746H5.52344C5.33659 1.14746 5.1862 1.20215 5.07227 1.31152C4.95833 1.41634 4.90137 1.55534 4.90137 1.72852V3.14355H3.63672ZM0.608398 3.89551C0.439779 3.89551 0.296224 3.83626 0.177734 3.71777C0.0592448 3.59928 0 3.45573 0 3.28711C0 3.12305 0.0592448 2.98405 0.177734 2.87012C0.296224 2.75163 0.439779 2.69238 0.608398 2.69238H12.8789C13.0475 2.69238 13.1888 2.74935 13.3027 2.86328C13.4212 2.97721 13.4805 3.11849 13.4805 3.28711C13.4805 3.45573 13.4212 3.59928 13.3027 3.71777C13.1888 3.83626 13.0475 3.89551 12.8789 3.89551H0.608398ZM3.60254 15.4277C3.07389 15.4277 2.65007 15.2796 2.33105 14.9834C2.0166 14.6872 1.84798 14.2747 1.8252 13.7461L1.34668 3.76562H2.59766L3.06934 13.5342C3.07845 13.7347 3.14453 13.8988 3.26758 14.0264C3.39062 14.154 3.54785 14.2178 3.73926 14.2178H9.74121C9.93262 14.2178 10.0898 14.154 10.2129 14.0264C10.3359 13.9033 10.402 13.7393 10.4111 13.5342L10.8623 3.76562H12.1338L11.6621 13.7393C11.6393 14.2679 11.4684 14.6803 11.1494 14.9766C10.8304 15.2773 10.4089 15.4277 9.88477 15.4277H3.60254Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+        {displayedObjectPrompt && (
+          <section
+            key={`${displayedObjectPrompt.name}-${objectPromptAnimationKey}`}
+            ref={objectPromptPanelRef}
+            className={`object-prompt-panel${isObjectPromptClosing ? ' object-prompt-panel--closing' : ''}`}
+            style={{
+              left: `${objectPromptPanelPosition.left}px`,
+              top: `${objectPromptPanelPosition.top}px`,
+              ['--object-prompt-from-x' as string]: `${objectPromptFromOffset.x}px`,
+              ['--object-prompt-from-y' as string]: `${objectPromptFromOffset.y}px`,
+            }}
+            aria-label={`${displayedObjectPrompt.name} prompt`}
+          >
+            <div className="object-prompt-header">
+              <h3 className="object-prompt-title">{displayedObjectPrompt.name}</h3>
+              <div className="object-prompt-glyphs">
+                <button className="object-prompt-glyph-button" type="button" aria-label="Add object prompt">
+                  <svg className="object-prompt-glyph" viewBox="0 0 20 20" aria-hidden="true">
+                    <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
+                    <path
+                      d="M10.3555 14.082C10.3555 14.2227 10.3027 14.3438 10.1973 14.4453C10.0957 14.5508 9.97266 14.6035 9.82812 14.6035C9.68359 14.6035 9.56055 14.5508 9.45898 14.4453C9.35742 14.3438 9.30664 14.2227 9.30664 14.082V5.45703C9.30664 5.31641 9.35742 5.19531 9.45898 5.09375C9.56055 4.98828 9.68359 4.93555 9.82812 4.93555C9.97266 4.93555 10.0957 4.98828 10.1973 5.09375C10.3027 5.19531 10.3555 5.31641 10.3555 5.45703V14.082ZM5.51562 10.291C5.375 10.291 5.25195 10.2402 5.14648 10.1387C5.04492 10.0371 4.99414 9.91406 4.99414 9.76953C4.99414 9.625 5.04492 9.50195 5.14648 9.40039C5.25195 9.29492 5.375 9.24219 5.51562 9.24219H14.1406C14.2812 9.24219 14.4023 9.29492 14.5039 9.40039C14.6094 9.50195 14.6621 9.625 14.6621 9.76953C14.6621 9.91406 14.6094 10.0371 14.5039 10.1387C14.4023 10.2402 14.2812 10.291 14.1406 10.291H5.51562Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
+                <button className="object-prompt-glyph-button" type="button" aria-label="Delete object prompt">
+                  <svg className="object-prompt-glyph object-prompt-glyph-trash" viewBox="0 0 14 16" aria-hidden="true">
+                    <path
+                      d="M4.73047 13.1104C4.58919 13.1104 4.47526 13.0716 4.38867 12.9941C4.30208 12.9121 4.25651 12.8027 4.25195 12.666L4.04688 5.50195C4.04232 5.36979 4.08333 5.2627 4.16992 5.18066C4.25651 5.09408 4.37044 5.05078 4.51172 5.05078C4.65299 5.05078 4.76693 5.0918 4.85352 5.17383C4.9401 5.25586 4.9834 5.36296 4.9834 5.49512L5.19531 12.6592C5.19531 12.7959 5.15202 12.9053 5.06543 12.9873C4.9834 13.0693 4.87174 13.1104 4.73047 13.1104ZM6.74023 13.1104C6.59896 13.1104 6.48275 13.0693 6.3916 12.9873C6.30501 12.9053 6.26172 12.7982 6.26172 12.666V5.50195C6.26172 5.36979 6.30501 5.2627 6.3916 5.18066C6.48275 5.09408 6.59896 5.05078 6.74023 5.05078C6.88607 5.05078 7.00228 5.09408 7.08887 5.18066C7.18001 5.2627 7.22559 5.36979 7.22559 5.50195V12.666C7.22559 12.7982 7.18001 12.9053 7.08887 12.9873C7.00228 13.0693 6.88607 13.1104 6.74023 13.1104ZM8.75684 13.1104C8.611 13.1104 8.49479 13.0693 8.4082 12.9873C8.32617 12.9053 8.28743 12.7959 8.29199 12.6592L8.49707 5.50195C8.50163 5.36523 8.5472 5.25586 8.63379 5.17383C8.72038 5.0918 8.83203 5.05078 8.96875 5.05078C9.11458 5.05078 9.22852 5.09408 9.31055 5.18066C9.39714 5.2627 9.43815 5.36979 9.43359 5.50195L9.22852 12.666C9.22396 12.8027 9.17839 12.9121 9.0918 12.9941C9.00521 13.0716 8.89355 13.1104 8.75684 13.1104ZM3.63672 3.14355V1.66699C3.63672 1.1429 3.79395 0.735026 4.1084 0.443359C4.42741 0.147135 4.86947 -0.000976562 5.43457 -0.000976562H8.03223C8.59733 -0.000976562 9.03939 0.147135 9.3584 0.443359C9.67741 0.735026 9.83691 1.1429 9.83691 1.66699V3.14355H8.57227V1.72852C8.57227 1.55534 8.5153 1.41634 8.40137 1.31152C8.28743 1.20215 8.13477 1.14746 7.94336 1.14746H5.52344C5.33659 1.14746 5.1862 1.20215 5.07227 1.31152C4.95833 1.41634 4.90137 1.55534 4.90137 1.72852V3.14355H3.63672ZM0.608398 3.89551C0.439779 3.89551 0.296224 3.83626 0.177734 3.71777C0.0592448 3.59928 0 3.45573 0 3.28711C0 3.12305 0.0592448 2.98405 0.177734 2.87012C0.296224 2.75163 0.439779 2.69238 0.608398 2.69238H12.8789C13.0475 2.69238 13.1888 2.74935 13.3027 2.86328C13.4212 2.97721 13.4805 3.11849 13.4805 3.28711C13.4805 3.45573 13.4212 3.59928 13.3027 3.71777C13.1888 3.83626 13.0475 3.89551 12.8789 3.89551H0.608398ZM3.60254 15.4277C3.07389 15.4277 2.65007 15.2796 2.33105 14.9834C2.0166 14.6872 1.84798 14.2747 1.8252 13.7461L1.34668 3.76562H2.59766L3.06934 13.5342C3.07845 13.7347 3.14453 13.8988 3.26758 14.0264C3.39062 14.154 3.54785 14.2178 3.73926 14.2178H9.74121C9.93262 14.2178 10.0898 14.154 10.2129 14.0264C10.3359 13.9033 10.402 13.7393 10.4111 13.5342L10.8623 3.76562H12.1338L11.6621 13.7393C11.6393 14.2679 11.4684 14.6803 11.1494 14.9766C10.8304 15.2773 10.4089 15.4277 9.88477 15.4277H3.60254Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <textarea
+              ref={objectPromptTextareaRef}
+              className="object-prompt-textarea"
+              value={displayedObjectPromptText}
+              onChange={(event) =>
+                setObjectPromptTexts((previous) => ({
+                  ...previous,
+                  [displayedObjectPrompt.name]: event.target.value,
+                }))
+              }
+            />
+          </section>
         )}
       </main>
     </>
