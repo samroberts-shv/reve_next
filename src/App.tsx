@@ -1,6 +1,17 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import './App.css'
+import { hasNoAdjustments, normalizeAdjustParams } from './adjustParams'
 import montBlancTrail from './assets/photos/montblanctrail.jpg'
+import { createAdjustRenderer } from './imageAdjustWebGL'
 import reveLogo from './assets/reve_logo.svg'
 import favOffGlyph from './assets/glyphs/fav_off.svg'
 import shareGlyph from './assets/glyphs/share.svg'
@@ -8,13 +19,22 @@ import moreGlyph from './assets/glyphs/more.svg'
 import trashGlyph from './assets/glyphs/trash.svg'
 import textGlyph from './assets/glyphs/text.svg'
 import objectGlyph from './assets/glyphs/object.svg'
+import referenceGlyph from './assets/glyphs/reference.svg'
+import webGlyph from './assets/glyphs/web.svg'
+import cameraGlyph from './assets/glyphs/camera.svg'
+import closeGlyph from './assets/glyphs/close.svg'
+import searchGlyph from './assets/glyphs/search.svg'
+import adjustGlyph from './assets/glyphs/adjust.svg'
+import upscaleGlyph from './assets/glyphs/upscale.svg'
+import isolateGlyph from './assets/glyphs/isolate.svg'
+import varyGlyph from './assets/glyphs/vary.svg'
 import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
 
 type Tool = 'commentDraw' | 'select' | 'reframe'
-type BottomLeftMenu = 'info' | 'objects' | 'effects' | 'quickEdit' | null
+type BottomLeftMenu = 'info' | 'objects' | 'adjust' | 'effects' | 'quickEdit' | null
 
 const TOOL_INSTRUCTIONS: Record<Tool, string> = {
   commentDraw:
@@ -22,9 +42,35 @@ const TOOL_INSTRUCTIONS: Record<Tool, string> = {
   select: 'Select, move and edit objects.',
   reframe: 'Edit the aspect ratio and framing.',
 }
+
+const ADJUST_SLIDER_IDS = [
+  'Temp',
+  'Tint',
+  'Exposure',
+  'Contrast',
+  'Highlights',
+  'Shadows',
+  'Vibrance',
+  'Saturation',
+] as const
 type SourcePoint = { x: number; y: number }
 type SourceBounds = { x: number; y: number; width: number; height: number }
 type CommentPanelState = 'expanded' | 'collapsed'
+type SearchThumbnail = { id: string; name: string; src: string }
+type PendingEdit = {
+  id: string
+  text: string
+  annotation: CommentAnnotation
+}
+type RenderRevealTransition = {
+  previousImageSrc: string
+  nextImageSrc: string
+  startingBlurPx: number
+}
+type RenderHistoryItem = {
+  id: string
+  src: string
+}
 type CommentAnnotation = {
   id: string
   kind: 'point' | 'stroke'
@@ -50,6 +96,21 @@ const objectThumbnails = Object.entries(objectThumbnailModules)
     src,
   }))
   .sort((a, b) => a.name.localeCompare(b.name))
+
+const referenceThumbnailModules = import.meta.glob('./assets/references/*.png', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>
+
+const referenceThumbnails = Object.entries(referenceThumbnailModules)
+  .map(([path, src]) => ({
+    name: path.split('/').pop()?.replace('.png', '').replaceAll('_', ' ') ?? 'reference',
+    src,
+  }))
+  .sort((a, b) => a.name.localeCompare(b.name))
+
+const recentReferenceThumbnails = referenceThumbnails
+  .slice(0, 6)
 
 const effectNames = [
   'Cinematic',
@@ -126,8 +187,37 @@ const getSmallestObjectAtClientPoint = (clientX: number, clientY: number, imageF
   return getSmallestObjectAtSourcePoint(sourceX, sourceY)
 }
 
+const objectPromptDescriptions: Record<string, string> = {
+  Valley:
+    'a wide, lush green valley with rolling hills and wild grasses stretching toward the mountains.',
+  Sky: 'a clear blue sky with soft clouds and bright daylight.',
+  'Nearby Trees':
+    'evergreen trees in the foreground with dense foliage and dark green needles.',
+  Mountains:
+    'snow-capped mountain peaks in the distance with rocky ridges and alpine terrain.',
+  Path: 'a light brown dirt path winding through the valley toward the mountains.',
+  'Yellow Wild Flowers':
+    'clusters of small yellow wildflowers growing along the path.',
+  'Purple Wild Flowers':
+    'patches of purple wildflowers mixed with the grass and yellow blooms.',
+  'Pink Wild Flowers':
+    'scattered pink wildflowers in the meadow on the right side of the scene.',
+  'White Wild Flowers':
+    'white wildflowers and blooms in a large patch in the mid-ground.',
+  'White Wild Flowers 2':
+    'another patch of white wildflowers near the lower edge of the frame.',
+  'Distant Trees':
+    'trees in the middle distance with softer detail and muted green tones.',
+  'Distant Trees 2':
+    'a second group of distant trees with foliage receding toward the mountains.',
+  'Distant Tree':
+    'a single tall tree standing in the distance against the sky.',
+  'Farm House':
+    'a small, quaint farm house that is painted white and has a brown roof.',
+}
+
 const getObjectPromptText = (objectName: string) =>
-  `The ${objectName.toLowerCase()} is a distinct part of this scene and can be edited independently from the rest of the image. Use focused edits here to refine local detail, color, and texture while keeping the overall composition intact.`
+  objectPromptDescriptions[objectName] ?? `the ${objectName.toLowerCase()} in this scene.`
 
 const clampVectorMagnitude = (x: number, y: number, maxMagnitude: number) => {
   const magnitude = Math.hypot(x, y)
@@ -161,6 +251,28 @@ const getObjectPromptPanelPosition = (imageObject: (typeof imageObjects)[number]
 }
 
 const commentTextPlaceholder = 'Change this...'
+const addMenuWidth = 300
+const addMenuFixedHeight = 420
+const addMenuEstimatedHeight = addMenuFixedHeight
+const addMenuViewportMargin = 10
+const pexelsResultsPerPage = 21
+const pendingEditThumbnailSize = 30
+const renderBlurMinPx = 20
+const renderBlurMaxPx = 100
+const renderBlurCycleMs = 3000
+const renderRevealCrossfadeMs = 500
+const renderRevealSharpenMs = 500
+const filmstripThumbnailHeightPx = 50
+const filmstripBottomGapPx = 10
+const filmstripControlsGapPx = 10
+const prototypePastWebSearches = [
+  'Porsche 912',
+  'Standford Tree',
+  'Anaconda',
+  'Galaxy',
+  'Santa Cruz Boardwalk',
+  'Modern Painting',
+]
 
 const sourcePointToPercent = (point: SourcePoint) => ({
   left: `${(point.x / sourceImageSize.width) * 100}%`,
@@ -213,6 +325,29 @@ const getCommentAnchorPoint = (commentAnnotation: CommentAnnotation): SourcePoin
   }
 }
 
+const getAddMenuPosition = (triggerBounds: DOMRect) => {
+  const horizontalMax = Math.max(addMenuViewportMargin, window.innerWidth - addMenuWidth - addMenuViewportMargin)
+  const left = Math.min(Math.max(triggerBounds.right - addMenuWidth, addMenuViewportMargin), horizontalMax)
+  const preferredTop = triggerBounds.top - addMenuEstimatedHeight - addMenuViewportMargin
+  const fallbackTop = triggerBounds.bottom + addMenuViewportMargin
+  const verticalMax = Math.max(addMenuViewportMargin, window.innerHeight - addMenuEstimatedHeight - addMenuViewportMargin)
+  const top =
+    preferredTop >= addMenuViewportMargin
+      ? preferredTop
+      : Math.min(Math.max(fallbackTop, addMenuViewportMargin), verticalMax)
+
+  return { left, top }
+}
+
+const clampAddMenuPosition = (position: { left: number; top: number }, menuWidth: number, menuHeight: number) => {
+  const horizontalMax = Math.max(addMenuViewportMargin, window.innerWidth - menuWidth - addMenuViewportMargin)
+  const verticalMax = Math.max(addMenuViewportMargin, window.innerHeight - menuHeight - addMenuViewportMargin)
+  return {
+    left: Math.min(Math.max(position.left, addMenuViewportMargin), horizontalMax),
+    top: Math.min(Math.max(position.top, addMenuViewportMargin), verticalMax),
+  }
+}
+
 const getCommentPanelPosition = (anchorPoint: SourcePoint, imageFrameBounds: DOMRect, panelHeight: number) => {
   const panelWidth = 300
   const viewportMargin = 10
@@ -257,9 +392,17 @@ function App() {
   const [toolInstructionFadedOut, setToolInstructionFadedOut] = useState(false)
   const toolInstructionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeBottomLeftMenu, setActiveBottomLeftMenu] = useState<BottomLeftMenu>(null)
+  const [adjustSliderValues, setAdjustSliderValues] = useState<Record<string, number>>(() =>
+    Object.fromEntries(ADJUST_SLIDER_IDS.map((id) => [id, 0])),
+  )
   const [infoText, setInfoText] = useState(imageDescription)
   const [composerInput, setComposerInput] = useState('')
-  const [composerChanges, setComposerChanges] = useState<string[]>([])
+  const [composerChanges] = useState<string[]>([])
+  const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
+  const [isReveRendering, setIsReveRendering] = useState(false)
+  const [reveRenderError, setReveRenderError] = useState<string | null>(null)
+  const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
+  const [renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
   const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
   const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
@@ -282,6 +425,16 @@ function App() {
   const [draftCommentBoxStart, setDraftCommentBoxStart] = useState<SourcePoint | null>(null)
   const [draftCommentBoxEnd, setDraftCommentBoxEnd] = useState<SourcePoint | null>(null)
   const [commentPanelPosition, setCommentPanelPosition] = useState({ left: 10, top: 10 })
+  const [isComposerAddMenuOpen, setIsComposerAddMenuOpen] = useState(false)
+  const [addMenuPosition, setAddMenuPosition] = useState({ left: 10, top: 10 })
+  const [isPendingEditsMenuOpen, setIsPendingEditsMenuOpen] = useState(false)
+  const [isAddMenuReferenceBrowserOpen, setIsAddMenuReferenceBrowserOpen] = useState(false)
+  const [addMenuSourceTab, setAddMenuSourceTab] = useState<'references' | 'webSearch'>('references')
+  const [addMenuSearchQuery, setAddMenuSearchQuery] = useState('')
+  const [webSearchResults, setWebSearchResults] = useState<SearchThumbnail[]>([])
+  const [isWebSearchLoading, setIsWebSearchLoading] = useState(false)
+  const [webSearchError, setWebSearchError] = useState<string | null>(null)
+  const [hasWebSearchPerformed, setHasWebSearchPerformed] = useState(false)
   const [hoverCornerMarkerSize, setHoverCornerMarkerSize] = useState(36)
   const bottomLeftContainerRef = useRef<HTMLDivElement | null>(null)
   const infoTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -290,13 +443,117 @@ function App() {
   const objectPromptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const objectPromptCloseTimeoutRef = useRef<number | null>(null)
   const commentPanelRef = useRef<HTMLDivElement | null>(null)
+  const addMenuRef = useRef<HTMLElement | null>(null)
+  const pendingEditsMenuRef = useRef<HTMLElement | null>(null)
+  const commentLayerRef = useRef<HTMLDivElement | null>(null)
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const activeCommentRef = useRef<CommentAnnotation | null>(null)
   const commentPointerIdRef = useRef<number | null>(null)
   const commentStrokeStartPointRef = useRef<SourcePoint | null>(null)
   const draftCommentStrokePointsRef = useRef<SourcePoint[]>([])
   const commentBoxModeRef = useRef(false)
+  const sourceImageRef = useRef<HTMLImageElement | null>(null)
+  const heroWebGLCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const adjustRendererRef = useRef<ReturnType<typeof createAdjustRenderer> | null>(null)
+  const renderCycleStartedAtRef = useRef<number | null>(null)
+  const renderRevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const hasComposerChanges = composerChanges.length > 0 || commentAnnotations.length > 0
+  const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
+  const [pendingEditThumbnailSrcById, setPendingEditThumbnailSrcById] = useState<Record<string, string>>({})
+  const [adjustSliderDraggingId, setAdjustSliderDraggingId] = useState<string | null>(null)
+  const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
+  const adjustContentRef = useRef<HTMLDivElement | null>(null)
+
+  const hasComposerChanges = composerInput.trim().length > 0 || composerChanges.length > 0 || commentAnnotations.length > 0
+  const canRender = hasComposerChanges && !isReveRendering
+  const hasRenderHistory = renderHistory.length > 0
+  const controlsBottomPx = hasRenderHistory ? filmstripBottomGapPx + filmstripThumbnailHeightPx + filmstripControlsGapPx : 10
+  const pendingEdits: PendingEdit[] = commentAnnotations
+    .map((comment) => ({
+      id: comment.id,
+      text: comment.text.trim(),
+      annotation: comment,
+    }))
+    .filter((pendingEdit) => pendingEdit.text.length > 0)
+  const pendingEditCount = pendingEdits.length
+  const isInteractionMenuOpen =
+    activeBottomLeftMenu !== null ||
+    isComposerAddMenuOpen ||
+    isPendingEditsMenuOpen ||
+    displayedObjectPromptName !== null ||
+    activeCommentId !== null
+
+  useLayoutEffect(() => {
+    if (hasNoAdjustments(adjustSliderValues) || !sourceImageLoaded) {
+      return
+    }
+    const canvas = heroWebGLCanvasRef.current
+    const img = sourceImageRef.current
+    if (!canvas || !img?.complete || img.naturalWidth === 0) {
+      return
+    }
+    let renderer = adjustRendererRef.current
+    if (renderer && renderer.canvas !== canvas) {
+      renderer.destroy()
+      adjustRendererRef.current = null
+      renderer = null
+    }
+    if (!renderer) {
+      renderer = createAdjustRenderer(canvas)
+      adjustRendererRef.current = renderer
+      if (!renderer) return
+    }
+    const updateSizeAndRender = () => {
+      const r = adjustRendererRef.current
+      const im = sourceImageRef.current
+      const frame = imageFrameRef.current
+      if (!r || !im || !frame) return
+      const w = frame.clientWidth
+      const h = Math.round((w * im.naturalHeight) / im.naturalWidth)
+      r.setSize(w, h)
+      r.render()
+    }
+    renderer.setImage(img)
+    renderer.setParams(normalizeAdjustParams(adjustSliderValues))
+    const frame = imageFrameRef.current
+    if (frame) {
+      const w = frame.clientWidth
+      const h = Math.round((w * img.naturalHeight) / img.naturalWidth)
+      renderer.setSize(w, h)
+    }
+    renderer.render()
+
+    const ro = new ResizeObserver(updateSizeAndRender)
+    ro.observe(frame!)
+    return () => ro.disconnect()
+  }, [adjustSliderValues, sourceImageLoaded])
+
+  useEffect(() => {
+    if (!isInteractionMenuOpen) {
+      return
+    }
+
+    setHoveredObjectName(null)
+    setShowCommentCursorHint(false)
+    setIsDrawingCommentStroke(false)
+    setDraftCommentStrokePoints([])
+    setDraftCommentBoxStart(null)
+    setDraftCommentBoxEnd(null)
+    commentBoxModeRef.current = false
+    commentPointerIdRef.current = null
+    commentStrokeStartPointRef.current = null
+    draftCommentStrokePointsRef.current = []
+  }, [isInteractionMenuOpen])
+
+  useEffect(() => {
+    return () => {
+      const r = adjustRendererRef.current
+      if (r) {
+        r.destroy()
+        adjustRendererRef.current = null
+      }
+    }
+  }, [])
 
   const finishClosingObjectPrompt = () => {
     setDisplayedObjectPromptName(null)
@@ -344,6 +601,7 @@ function App() {
       return
     }
 
+    setSelectedTool('commentDraw')
     const nextPosition = getCommentPanelPosition(getCommentAnchorPoint(commentAnnotation), imageFrameBounds, 130)
     setCommentPanelPosition(nextPosition)
     setCommentAnnotations((previous) =>
@@ -392,7 +650,9 @@ function App() {
     }
 
     setCommentAnnotations((previous) =>
-      previous.map((comment) => ({ ...comment, panelState: 'collapsed' })).concat(commentAnnotation),
+      previous
+        .map((comment) => ({ ...comment, panelState: 'collapsed' as CommentPanelState }))
+        .concat(commentAnnotation),
     )
     setCommentPanelPosition(panelPosition)
     setActiveCommentId(commentId)
@@ -401,20 +661,6 @@ function App() {
   const handleDeleteComment = (commentId: string) => {
     setCommentAnnotations((previous) => previous.filter((comment) => comment.id !== commentId))
     setActiveCommentId((previous) => (previous === commentId ? null : previous))
-  }
-
-  const handleAddCommentToComposer = (commentId: string) => {
-    const commentAnnotation = commentAnnotations.find((comment) => comment.id === commentId)
-    if (!commentAnnotation) {
-      return
-    }
-
-    const trimmedCommentText = commentAnnotation.text.trim()
-    if (!trimmedCommentText) {
-      return
-    }
-
-    setComposerChanges((previous) => [...previous, trimmedCommentText])
   }
 
   const handleCommentInputKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -438,35 +684,231 @@ function App() {
     setActiveCommentId(null)
   }
 
-  const handleAddComposerChange = () => {
-    const trimmedInput = composerInput.trim()
+  const handleAddMenuTriggerClick = (event: MouseEvent<HTMLButtonElement>) => {
+    const triggerBounds = event.currentTarget.getBoundingClientRect()
+    setAddMenuPosition(getAddMenuPosition(triggerBounds))
+    setIsAddMenuReferenceBrowserOpen(false)
+    setAddMenuSourceTab('references')
+    setAddMenuSearchQuery('')
+    setWebSearchResults([])
+    setWebSearchError(null)
+    setHasWebSearchPerformed(false)
+    setIsComposerAddMenuOpen(true)
+  }
 
-    if (!trimmedInput) {
+  const handleOpenAddMenuSourceBrowser = (source: 'references' | 'webSearch') => {
+    setAddMenuSourceTab(source)
+    setIsAddMenuReferenceBrowserOpen(true)
+  }
+
+  const handleRunPexelsWebSearch = async (queryOverride?: string) => {
+    const query = (queryOverride ?? addMenuSearchQuery).trim()
+    if (!query) {
+      return
+    }
+    if (query !== addMenuSearchQuery) {
+      setAddMenuSearchQuery(query)
+    }
+
+    const pexelsApiKey = (import.meta.env.VITE_PEXELS_API_KEY as string | undefined)?.trim()
+    if (!pexelsApiKey) {
+      setWebSearchError('Missing VITE_PEXELS_API_KEY.')
+      setWebSearchResults([])
+      setHasWebSearchPerformed(true)
       return
     }
 
-    setComposerChanges((previous) => [...previous, trimmedInput])
-    setComposerInput('')
+    setIsWebSearchLoading(true)
+    setWebSearchError(null)
+    setHasWebSearchPerformed(true)
+
+    try {
+      const response = await fetch(
+        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${pexelsResultsPerPage}`,
+        {
+          headers: {
+            Authorization: pexelsApiKey,
+          },
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(`Pexels request failed (${response.status})`)
+      }
+
+      const data = (await response.json()) as {
+        photos?: Array<{
+          id: number
+          alt: string
+          photographer?: string
+          src: { medium?: string; large?: string; original?: string }
+        }>
+      }
+
+      const results: SearchThumbnail[] = (data.photos ?? [])
+        .slice(0, pexelsResultsPerPage)
+        .map((photo) => ({
+          id: String(photo.id),
+          name:
+            photo.photographer?.trim() ||
+            photo.alt
+              ?.trim()
+              .split(/\s+/)
+              .slice(0, 4)
+              .join(' ') ||
+            `Photo ${photo.id}`,
+          src: photo.src.medium ?? photo.src.large ?? photo.src.original ?? '',
+        }))
+        .filter((photo) => photo.src.length > 0)
+
+      setWebSearchResults(results)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Web search failed.'
+      setWebSearchError(message)
+      setWebSearchResults([])
+    } finally {
+      setIsWebSearchLoading(false)
+    }
   }
 
-  const handleRender = () => {
-    setCommentAnnotations([])
-    setActiveCommentId(null)
-    setIsDrawingCommentStroke(false)
-    setDraftCommentStrokePoints([])
-    setDraftCommentBoxStart(null)
-    setDraftCommentBoxEnd(null)
-    commentBoxModeRef.current = false
-    draftCommentStrokePointsRef.current = []
-    commentPointerIdRef.current = null
-    commentStrokeStartPointRef.current = null
+  const normalizedAddMenuSearchQuery = addMenuSearchQuery.trim().toLowerCase()
+  const filteredReferenceThumbnails = referenceThumbnails.filter((thumbnail) =>
+    thumbnail.name.toLowerCase().includes(normalizedAddMenuSearchQuery),
+  )
+
+  const getCurrentRenderBlurPx = () => {
+    if (renderCycleStartedAtRef.current === null) {
+      return renderBlurMinPx
+    }
+
+    const elapsedMs = (performance.now() - renderCycleStartedAtRef.current) % renderBlurCycleMs
+    const halfCycleMs = renderBlurCycleMs / 2
+    const travelProgress = elapsedMs <= halfCycleMs ? elapsedMs / halfCycleMs : (renderBlurCycleMs - elapsedMs) / halfCycleMs
+    return renderBlurMinPx + (renderBlurMaxPx - renderBlurMinPx) * travelProgress
   }
+
+  const handleRender = async () => {
+    const promptParts = [
+      composerInput.trim(),
+      ...commentAnnotations.map((comment) => comment.text.trim()).filter((text) => text.length > 0),
+    ].filter((part) => part.length > 0)
+    if (promptParts.length === 0) {
+      return
+    }
+
+    const reveApiKey = (import.meta.env.VITE_REVE_API_KEY as string | undefined)?.trim()
+    if (!reveApiKey) {
+      setReveRenderError('Missing VITE_REVE_API_KEY.')
+      return
+    }
+
+    const prompt = `Base scene: ${imageDescription}\n\nEdit request: ${promptParts.join('\n')}`
+
+    setIsReveRendering(true)
+    setReveRenderError(null)
+    renderCycleStartedAtRef.current = performance.now()
+    if (renderRevealTimeoutRef.current !== null) {
+      window.clearTimeout(renderRevealTimeoutRef.current)
+      renderRevealTimeoutRef.current = null
+    }
+    setRenderRevealTransition(null)
+
+    try {
+      const response = await fetch('https://api.reve.com/v1/image/create', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${reveApiKey}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          aspect_ratio: '16:9',
+          version: 'latest',
+        }),
+      })
+
+      const payload = (await response.json()) as {
+        image?: string
+        content_violation?: boolean
+        message?: string
+        error_code?: string
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.message || payload.error_code || `Reve request failed (${response.status})`)
+      }
+
+      if (payload.content_violation) {
+        throw new Error('Reve flagged this request for content policy.')
+      }
+
+      if (!payload.image) {
+        throw new Error('Reve response did not include image data.')
+      }
+
+      const nextImageSrc = `data:image/png;base64,${payload.image}`
+      const blurAtRevealPx = getCurrentRenderBlurPx()
+      setRenderRevealTransition({
+        previousImageSrc: displayImageSrc,
+        nextImageSrc,
+        startingBlurPx: blurAtRevealPx,
+      })
+      setRenderHistory((previous) => {
+        const timestamp = Date.now()
+        const nextRenderItem = { id: `${timestamp}-${previous.length}`, src: nextImageSrc }
+        if (previous.length === 0) {
+          return [
+            { id: `${timestamp}-base`, src: displayImageSrc },
+            nextRenderItem,
+          ]
+        }
+        return [...previous, nextRenderItem]
+      })
+      renderRevealTimeoutRef.current = window.setTimeout(() => {
+        setRenderRevealTransition(null)
+        renderRevealTimeoutRef.current = null
+      }, renderRevealCrossfadeMs + renderRevealSharpenMs)
+
+      setDisplayImageSrc(nextImageSrc)
+      setSourceImageLoaded(false)
+      setComposerInput('')
+      setCommentAnnotations([])
+      setActiveCommentId(null)
+      setIsDrawingCommentStroke(false)
+      setDraftCommentStrokePoints([])
+      setDraftCommentBoxStart(null)
+      setDraftCommentBoxEnd(null)
+      commentBoxModeRef.current = false
+      draftCommentStrokePointsRef.current = []
+      commentPointerIdRef.current = null
+      commentStrokeStartPointRef.current = null
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reve render failed.'
+      setReveRenderError(message)
+    } finally {
+      setIsReveRendering(false)
+      renderCycleStartedAtRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (renderRevealTimeoutRef.current !== null) {
+        window.clearTimeout(renderRevealTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const toggleBottomLeftMenu = (menu: Exclude<BottomLeftMenu, null>) => {
     setActiveBottomLeftMenu((previous) => (previous === menu ? null : menu))
   }
 
   const handleImageMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (selectedTool === 'commentDraw') {
       setCommentCursorPosition({ x: event.clientX, y: event.clientY })
       setShowCommentCursorHint(true)
@@ -488,6 +930,10 @@ function App() {
   }
 
   const handleImageClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (selectedTool !== 'select') {
       closeObjectPrompt()
       return
@@ -505,6 +951,10 @@ function App() {
   }
 
   const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (selectedTool !== 'commentDraw') {
       return
     }
@@ -531,6 +981,10 @@ function App() {
   }
 
   const handleImagePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (selectedTool !== 'commentDraw' || commentPointerIdRef.current !== event.pointerId) {
       return
     }
@@ -548,6 +1002,10 @@ function App() {
   }
 
   const handleImagePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (selectedTool !== 'commentDraw' || commentPointerIdRef.current !== event.pointerId) {
       return
     }
@@ -590,6 +1048,10 @@ function App() {
   }
 
   const handleImagePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
+    if (isInteractionMenuOpen) {
+      return
+    }
+
     if (commentPointerIdRef.current !== event.pointerId) {
       return
     }
@@ -626,6 +1088,7 @@ function App() {
     ? (objectPromptTexts[displayedObjectPrompt.name] ?? getObjectPromptText(displayedObjectPrompt.name))
     : ''
   const activeComment = activeCommentId ? commentAnnotations.find((comment) => comment.id === activeCommentId) ?? null : null
+  activeCommentRef.current = activeComment
 
   useLayoutEffect(() => {
     if (activeBottomLeftMenu !== 'info' || !infoTextareaRef.current) {
@@ -741,7 +1204,7 @@ function App() {
       return
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
       const eventTarget = event.target
       if (!(eventTarget instanceof Node)) {
         return
@@ -783,7 +1246,7 @@ function App() {
   }, [displayedObjectPrompt])
 
   useEffect(() => {
-    if (!activeComment) {
+    if (!isComposerAddMenuOpen) {
       return
     }
 
@@ -793,9 +1256,190 @@ function App() {
         return
       }
 
-      if (!commentPanelRef.current?.contains(eventTarget)) {
-        collapseActiveCommentPanel()
+      if (addMenuRef.current?.contains(eventTarget)) {
+        return
       }
+
+      if (eventTarget instanceof Element && eventTarget.closest('[data-add-menu-trigger="true"]')) {
+        return
+      }
+
+      if (!(eventTarget instanceof Element)) {
+        return
+      }
+
+      if (!eventTarget.closest('.composer-add-menu')) {
+        setIsComposerAddMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [isComposerAddMenuOpen])
+
+  useEffect(() => {
+    if (!isPendingEditsMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const eventTarget = event.target
+      if (!(eventTarget instanceof Node)) {
+        return
+      }
+
+      if (pendingEditsMenuRef.current?.contains(eventTarget)) {
+        return
+      }
+
+      if (eventTarget instanceof Element && eventTarget.closest('[data-pending-edits-trigger="true"]')) {
+        return
+      }
+
+      setIsPendingEditsMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [isPendingEditsMenuOpen])
+
+  useEffect(() => {
+    if (pendingEditCount > 0) {
+      return
+    }
+
+    setIsPendingEditsMenuOpen(false)
+  }, [pendingEditCount])
+
+  useEffect(() => {
+    if (!sourceImageRef.current || pendingEdits.length === 0) {
+      setPendingEditThumbnailSrcById({})
+      return
+    }
+
+    const sourceImageElement = sourceImageRef.current
+    if (!sourceImageElement.complete || sourceImageElement.naturalWidth === 0 || sourceImageElement.naturalHeight === 0) {
+      return
+    }
+
+    const thumbnailMap: Record<string, string> = {}
+
+    pendingEdits.forEach((pendingEdit) => {
+      const { annotation } = pendingEdit
+      const anchorPoint = getCommentAnchorPoint(annotation)
+      const halfSize = pendingEditThumbnailSize / 2
+      const cropX = Math.round(Math.max(0, Math.min(sourceImageSize.width - pendingEditThumbnailSize, anchorPoint.x - halfSize)))
+      const cropY = Math.round(Math.max(0, Math.min(sourceImageSize.height - pendingEditThumbnailSize, anchorPoint.y - halfSize)))
+
+      const thumbnailCanvas = document.createElement('canvas')
+      thumbnailCanvas.width = pendingEditThumbnailSize
+      thumbnailCanvas.height = pendingEditThumbnailSize
+      const thumbnailContext = thumbnailCanvas.getContext('2d')
+      if (!thumbnailContext) {
+        return
+      }
+
+      thumbnailContext.drawImage(
+        sourceImageElement,
+        cropX,
+        cropY,
+        pendingEditThumbnailSize,
+        pendingEditThumbnailSize,
+        0,
+        0,
+        pendingEditThumbnailSize,
+        pendingEditThumbnailSize,
+      )
+
+      if (annotation.kind === 'stroke' && annotation.strokePoints.length > 1) {
+        thumbnailContext.strokeStyle = '#ff0000'
+        thumbnailContext.lineWidth = 2
+        thumbnailContext.lineCap = 'round'
+        thumbnailContext.lineJoin = 'round'
+        thumbnailContext.beginPath()
+        annotation.strokePoints.forEach((point, index) => {
+          const localX = point.x - cropX
+          const localY = point.y - cropY
+          if (index === 0) {
+            thumbnailContext.moveTo(localX, localY)
+          } else {
+            thumbnailContext.lineTo(localX, localY)
+          }
+        })
+        thumbnailContext.stroke()
+      }
+
+      thumbnailMap[pendingEdit.id] = thumbnailCanvas.toDataURL('image/png')
+    })
+
+    setPendingEditThumbnailSrcById(thumbnailMap)
+  }, [pendingEdits, displayImageSrc, sourceImageLoaded])
+
+  useLayoutEffect(() => {
+    if (!isComposerAddMenuOpen || !addMenuRef.current) {
+      return
+    }
+
+    const updateClampedAddMenuPosition = () => {
+      const menuBounds = addMenuRef.current?.getBoundingClientRect()
+      if (!menuBounds) {
+        return
+      }
+      const clampedPosition = clampAddMenuPosition(
+        addMenuPosition,
+        Math.ceil(menuBounds.width),
+        Math.ceil(menuBounds.height),
+      )
+      if (clampedPosition.left !== addMenuPosition.left || clampedPosition.top !== addMenuPosition.top) {
+        setAddMenuPosition(clampedPosition)
+      }
+    }
+
+    updateClampedAddMenuPosition()
+    window.addEventListener('resize', updateClampedAddMenuPosition)
+    return () => {
+      window.removeEventListener('resize', updateClampedAddMenuPosition)
+    }
+  }, [
+    isComposerAddMenuOpen,
+    addMenuPosition,
+    isAddMenuReferenceBrowserOpen,
+    addMenuSourceTab,
+    addMenuSearchQuery,
+    webSearchResults,
+    isWebSearchLoading,
+    webSearchError,
+    hasWebSearchPerformed,
+  ])
+
+  useEffect(() => {
+    if (!activeComment) {
+      return
+    }
+
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const eventTarget = event.target
+      if (!(eventTarget instanceof Node)) {
+        return
+      }
+      if (commentPanelRef.current?.contains(eventTarget)) {
+        return
+      }
+      if (commentLayerRef.current?.contains(eventTarget)) {
+        return
+      }
+      if (addMenuRef.current?.contains(eventTarget)) {
+        return
+      }
+      if (eventTarget instanceof Element && eventTarget.closest('[data-add-menu-trigger="true"]')) {
+        return
+      }
+      collapseActiveCommentPanel()
     }
 
     document.addEventListener('mousedown', handlePointerDown)
@@ -843,9 +1487,27 @@ function App() {
         return
       }
 
+      if (isComposerAddMenuOpen) {
+        event.preventDefault()
+        setIsComposerAddMenuOpen(false)
+        return
+      }
+
+      if (isPendingEditsMenuOpen) {
+        event.preventDefault()
+        setIsPendingEditsMenuOpen(false)
+        return
+      }
+
       if (activeCommentId !== null) {
         event.preventDefault()
-        collapseActiveCommentPanel()
+        const activeCommentForEscape = activeCommentRef.current
+        if (activeCommentForEscape && activeCommentForEscape.kind === 'point' && activeCommentForEscape.text.trim().length === 0) {
+          setCommentAnnotations((previous) => previous.filter((comment) => comment.id !== activeCommentForEscape.id))
+          setActiveCommentId((previous) => (previous === activeCommentForEscape.id ? null : previous))
+        } else {
+          collapseActiveCommentPanel()
+        }
         return
       }
 
@@ -861,6 +1523,8 @@ function App() {
     }
   }, [
     displayedObjectPromptName,
+    isComposerAddMenuOpen,
+    isPendingEditsMenuOpen,
     activeCommentId,
     activeBottomLeftMenu,
     closeObjectPrompt,
@@ -869,6 +1533,7 @@ function App() {
 
   return (
     <>
+      <div className="top-overlay-bar" aria-hidden="true" />
       <header className="top-right-meta" aria-label="Project breadcrumb">
         <img className="reve-logo" src={reveLogo} alt="Reve logo" />
         <span className="meta-text light meta-link">My Work</span>
@@ -894,7 +1559,7 @@ function App() {
       >
         {TOOL_INSTRUCTIONS[selectedTool]}
       </p>
-      <nav className="tool-palette" aria-label="Tools">
+      <nav className="tool-palette" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Tools">
         <button
           className={`tool-button${selectedTool === 'select' ? ' selected' : ''}`}
           type="button"
@@ -945,6 +1610,7 @@ function App() {
       <div ref={bottomLeftContainerRef}>
         {activeBottomLeftMenu !== null && (
           <section
+            ref={bottomLeftPanelRef}
             className={`bottom-left-panel${
               activeBottomLeftMenu === 'info'
                 ? ' bottom-left-panel--info'
@@ -952,7 +1618,9 @@ function App() {
                   ? ' bottom-left-panel--objects'
                   : activeBottomLeftMenu === 'effects'
                     ? ' bottom-left-panel--effects'
-                    : ''
+                    : activeBottomLeftMenu === 'adjust'
+                      ? ` bottom-left-panel--adjust${adjustSliderDraggingId != null ? ' bottom-left-panel--adjust-dragging' : ''}`
+                      : ''
             }`}
             aria-label={`${activeBottomLeftMenu} menu`}
           >
@@ -997,6 +1665,122 @@ function App() {
               </>
             )}
 
+            {activeBottomLeftMenu === 'adjust' && (
+              <>
+                <div
+                  className={`adjust-panel-bg${adjustSliderDraggingId != null ? ' adjust-panel-bg--dragging' : ''}`}
+                  aria-hidden="true"
+                />
+                <div ref={adjustContentRef} className="adjust-content">
+                <div className="adjust-action-buttons" aria-hidden={adjustSliderDraggingId != null}>
+                  <button className="adjust-action-button" type="button" aria-label="Upscale">
+                    <img className="adjust-action-button-glyph" src={upscaleGlyph} alt="" aria-hidden="true" />
+                    <span className="adjust-action-button-label">Upscale</span>
+                  </button>
+                  <button className="adjust-action-button" type="button" aria-label="Isolate">
+                    <img className="adjust-action-button-glyph" src={isolateGlyph} alt="" aria-hidden="true" />
+                    <span className="adjust-action-button-label">Isolate</span>
+                  </button>
+                  <button className="adjust-action-button" type="button" aria-label="Vary">
+                    <img className="adjust-action-button-glyph" src={varyGlyph} alt="" aria-hidden="true" />
+                    <span className="adjust-action-button-label">Vary</span>
+                  </button>
+                </div>
+                <div className="adjust-sliders">
+                  {ADJUST_SLIDER_IDS.map((id) => {
+                    const value = adjustSliderValues[id] ?? 0
+                    return (
+                      <div
+                        key={id}
+                        className={`adjust-slider${adjustSliderDraggingId === id ? ' adjust-slider--active' : ''}`}
+                        aria-label={id}
+                        aria-hidden={adjustSliderDraggingId != null && adjustSliderDraggingId !== id}
+                        onClick={(e) => {
+                          const track = e.currentTarget
+                          const rect = track.getBoundingClientRect()
+                          const x = e.clientX - rect.left
+                          const ratio = Math.max(0, Math.min(1, x / rect.width))
+                          const newValue = Math.round(ratio * 200 - 100)
+                          setAdjustSliderValues((prev) => ({ ...prev, [id]: newValue }))
+                        }}
+                      >
+                        <div
+                          className="adjust-slider-fill"
+                          style={(() => {
+                            if (value === 0) return { left: '50%', width: '0%' }
+                            if (value > 0) return { left: '50%', width: `${(value / 100) * 50}%` }
+                            return {
+                              left: `${((value + 100) / 200) * 100}%`,
+                              width: `${(-value / 100) * 50}%`,
+                            }
+                          })()}
+                          aria-hidden="true"
+                        />
+                        <div className="adjust-slider-inner">
+                          <span className="adjust-slider-name">{id}</span>
+                          <span className="adjust-slider-value">{value}</span>
+                        </div>
+                        <div
+                          className="adjust-slider-line"
+                          role="slider"
+                          aria-valuemin={-100}
+                          aria-valuemax={100}
+                          aria-valuenow={value}
+                          aria-label={id}
+                          tabIndex={0}
+                          onPointerDown={(e) => {
+                            e.preventDefault()
+                            setAdjustSliderDraggingId(id)
+                            const track = (e.currentTarget as HTMLElement).closest('.adjust-slider')
+                            if (track) {
+                              const rect = track.getBoundingClientRect()
+                              const x = e.clientX - rect.left
+                              const ratio = Math.max(0, Math.min(1, x / rect.width))
+                              const newValue = Math.round(ratio * 200 - 100)
+                              setAdjustSliderValues((prev) => ({ ...prev, [id]: newValue }))
+                            }
+                            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                          }}
+                          onPointerMove={(e) => {
+                            if (e.buttons !== 1 && e.pointerType === 'mouse') return
+                            const track = (e.currentTarget as HTMLElement).closest('.adjust-slider')
+                            if (!track) return
+                            const rect = track.getBoundingClientRect()
+                            const x = e.clientX - rect.left
+                            const ratio = Math.max(0, Math.min(1, x / rect.width))
+                            const newValue = Math.round(ratio * 200 - 100)
+                            setAdjustSliderValues((prev) => ({ ...prev, [id]: newValue }))
+                          }}
+                          onPointerUp={(e) => {
+                            setAdjustSliderDraggingId(null)
+                            ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                          }}
+                          onPointerCancel={(e) => {
+                            setAdjustSliderDraggingId(null)
+                            ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowLeft') {
+                              e.preventDefault()
+                              setAdjustSliderValues((prev) => ({ ...prev, [id]: Math.max(-100, value - 1) }))
+                            } else if (e.key === 'ArrowRight') {
+                              e.preventDefault()
+                              setAdjustSliderValues((prev) => ({ ...prev, [id]: Math.min(100, value + 1) }))
+                            }
+                          }}
+                          style={{
+                            left: `${((value + 100) / 200) * 100}%`,
+                          }}
+                        >
+                          <span className="adjust-slider-line-inner" />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              </>
+            )}
             {activeBottomLeftMenu === 'effects' && (
               <div className="effects-grid">
                 {effectNames.map((effectName) => (
@@ -1043,7 +1827,7 @@ function App() {
           </section>
         )}
 
-        <nav className="bottom-left-actions" aria-label="Canvas actions">
+        <nav className="bottom-left-actions" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Canvas actions">
           <button className={`text-action-button${activeBottomLeftMenu === 'info' ? ' active' : ''}`} type="button" aria-label="Info" onClick={() => toggleBottomLeftMenu('info')}>
           <svg className="text-action-glyph info-glyph" viewBox="0 0 18 18" aria-hidden="true">
             <path
@@ -1062,6 +1846,10 @@ function App() {
           </svg>
           <span>Objects</span>
         </button>
+          <button className={`text-action-button text-action-button--adjust${activeBottomLeftMenu === 'adjust' ? ' active' : ''}`} type="button" aria-label="Adjust" onClick={() => toggleBottomLeftMenu('adjust')}>
+            <img className="text-action-glyph adjust-glyph" src={adjustGlyph} alt="" aria-hidden="true" />
+            <span>Adjust</span>
+          </button>
           <button className={`text-action-button${activeBottomLeftMenu === 'effects' ? ' active' : ''}`} type="button" aria-label="Effects" onClick={() => toggleBottomLeftMenu('effects')}>
           <svg className="text-action-glyph effects-glyph" viewBox="0 0 23 22" aria-hidden="true">
             <path
@@ -1071,7 +1859,7 @@ function App() {
           </svg>
           <span>Effects</span>
         </button>
-          <button className={`text-action-button${activeBottomLeftMenu === 'quickEdit' ? ' active' : ''}`} type="button" aria-label="Quick Edit" onClick={() => toggleBottomLeftMenu('quickEdit')}>
+          <button className={`text-action-button text-action-button--quick-edit${activeBottomLeftMenu === 'quickEdit' ? ' active' : ''}`} type="button" aria-label="Quick Edit" onClick={() => toggleBottomLeftMenu('quickEdit')}>
           <span>Quick Edit</span>
           <svg className="text-action-glyph chevron-glyph" viewBox="0 0 9 5" aria-hidden="true">
             <path
@@ -1082,7 +1870,7 @@ function App() {
           </button>
         </nav>
       </div>
-      <nav className="composer" aria-label="Composer">
+      <nav className="composer" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Composer">
         <button className="composer-more-button" type="button" aria-label="More menu">
           <svg className="composer-more-glyph" viewBox="0 0 13 3" aria-hidden="true">
             <path
@@ -1091,7 +1879,187 @@ function App() {
             />
           </svg>
         </button>
-        <div className="composer-input-shell">
+        {isComposerAddMenuOpen && (
+          <section
+            ref={addMenuRef}
+            className="composer-add-menu"
+            style={{
+              left: `${addMenuPosition.left}px`,
+              top: `${addMenuPosition.top}px`,
+              height: `${addMenuFixedHeight}px`,
+            }}
+            aria-label="Add menu"
+          >
+            <div className="composer-add-menu-content">
+              {!isAddMenuReferenceBrowserOpen ? (
+                <>
+                  <p className="composer-add-recents-title">RECENT</p>
+                  <div className="composer-add-recents" aria-label="Recent references">
+                    {recentReferenceThumbnails.map((thumbnail) => (
+                      <button key={thumbnail.name} className="composer-add-recent-button" type="button" aria-label={thumbnail.name}>
+                        <img className="composer-add-recent-image" src={thumbnail.src} alt={thumbnail.name} />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="composer-add-action-list" aria-label="Add menu actions">
+                    <button className="composer-add-action-button" type="button" onClick={() => handleOpenAddMenuSourceBrowser('references')}>
+                      <img className="composer-add-action-glyph" src={referenceGlyph} alt="" aria-hidden="true" />
+                      <span>References</span>
+                    </button>
+                    <button className="composer-add-action-button" type="button" onClick={() => handleOpenAddMenuSourceBrowser('webSearch')}>
+                      <img className="composer-add-action-glyph" src={webGlyph} alt="" aria-hidden="true" />
+                      <span>Web Search</span>
+                    </button>
+                    <button className="composer-add-action-button" type="button">
+                      <img className="composer-add-action-glyph" src={cameraGlyph} alt="" aria-hidden="true" />
+                      <span>Take Photo</span>
+                    </button>
+                    <button className="composer-add-action-button" type="button">
+                      <img className="composer-add-action-glyph" src={shareGlyph} alt="" aria-hidden="true" />
+                      <span>Upload</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+              <section className="composer-source-browser" aria-label="References and web search browser">
+                <div className="composer-source-segmented-control" role="tablist" aria-label="Source type">
+                  <button
+                    className={`composer-source-segmented-option${addMenuSourceTab === 'references' ? ' active' : ''}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={addMenuSourceTab === 'references'}
+                    onClick={() => setAddMenuSourceTab('references')}
+                  >
+                    References
+                  </button>
+                  <button
+                    className={`composer-source-segmented-option${addMenuSourceTab === 'webSearch' ? ' active' : ''}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={addMenuSourceTab === 'webSearch'}
+                    onClick={() => setAddMenuSourceTab('webSearch')}
+                  >
+                    Web Search
+                  </button>
+                </div>
+                <div className="composer-source-search-field">
+                  <img className="composer-source-search-left-glyph" src={searchGlyph} alt="" aria-hidden="true" />
+                  <input
+                    className="composer-source-search-input"
+                    type="text"
+                    value={addMenuSearchQuery}
+                    onChange={(event) => setAddMenuSearchQuery(event.target.value)}
+                    placeholder={addMenuSourceTab === 'references' ? 'Search references' : 'Search web'}
+                    aria-label={addMenuSourceTab === 'references' ? 'Search references' : 'Search web'}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' || addMenuSourceTab !== 'webSearch') {
+                        return
+                      }
+                      event.preventDefault()
+                      void handleRunPexelsWebSearch()
+                    }}
+                  />
+                  {addMenuSearchQuery.length > 0 && (
+                    <button
+                      className="composer-source-search-clear-button"
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => setAddMenuSearchQuery('')}
+                    >
+                      <img className="composer-source-search-clear-glyph" src={closeGlyph} alt="" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                {addMenuSourceTab === 'references' ? (
+                  <div className="composer-source-grid" aria-label="Reference thumbnails">
+                    {filteredReferenceThumbnails.map((thumbnail) => (
+                      <button key={`source-${thumbnail.name}`} className="composer-source-grid-item" type="button" aria-label={thumbnail.name}>
+                        <img className="composer-source-grid-image" src={thumbnail.src} alt={thumbnail.name} />
+                        <span className="composer-source-grid-name">{thumbnail.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    {isWebSearchLoading && <p className="composer-source-status">Searching Pexels...</p>}
+                    {webSearchError && <p className="composer-source-status composer-source-status--error">{webSearchError}</p>}
+                    {!isWebSearchLoading && !webSearchError && hasWebSearchPerformed && webSearchResults.length === 0 && (
+                      <p className="composer-source-status">No results found.</p>
+                    )}
+                    {!isWebSearchLoading && webSearchResults.length === 0 && (
+                      <div className="composer-source-past-searches" aria-label="Past searches">
+                        {prototypePastWebSearches.map((searchTerm) => (
+                          <button
+                            key={searchTerm}
+                            className="composer-source-past-search-button"
+                            type="button"
+                            onClick={() => {
+                              void handleRunPexelsWebSearch(searchTerm)
+                            }}
+                          >
+                            {searchTerm}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!isWebSearchLoading && !webSearchError && webSearchResults.length > 0 && (
+                      <div className="composer-source-grid" aria-label="Web search thumbnails">
+                        {webSearchResults.map((thumbnail) => (
+                          <button key={`web-${thumbnail.id}`} className="composer-source-grid-item" type="button" aria-label={thumbnail.name}>
+                            <img className="composer-source-grid-image" src={thumbnail.src} alt={thumbnail.name} />
+                            <span className="composer-source-grid-name">{thumbnail.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+              )}
+            </div>
+          </section>
+        )}
+        <div className={`composer-input-shell${pendingEditCount > 0 ? ' composer-input-shell--has-pending-pill' : ''}`}>
+          {pendingEditCount > 0 && (
+            <>
+              <button
+                className="composer-pending-pill"
+                data-pending-edits-trigger="true"
+                type="button"
+                aria-label={`${pendingEditCount} pending edits`}
+                onClick={() => setIsPendingEditsMenuOpen((previous) => !previous)}
+              >
+                {pendingEditCount} Pending Edit{pendingEditCount === 1 ? '' : 's'}
+              </button>
+              {isPendingEditsMenuOpen && (
+                <section ref={pendingEditsMenuRef} className="composer-pending-menu" aria-label="Pending edits">
+                  {pendingEdits.map((pendingEdit) => (
+                    <div key={pendingEdit.id} className="composer-pending-item">
+                      {pendingEditThumbnailSrcById[pendingEdit.id] ? (
+                        <img
+                          className="composer-pending-thumbnail"
+                          src={pendingEditThumbnailSrcById[pendingEdit.id]}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <div className="composer-pending-thumbnail composer-pending-thumbnail--placeholder" aria-hidden="true" />
+                      )}
+                      <span className="composer-pending-item-text">{pendingEdit.text}</span>
+                      <button
+                        className="composer-pending-trash-wrap"
+                        type="button"
+                        aria-label={`Delete pending edit: ${pendingEdit.text}`}
+                        onClick={() => handleDeleteComment(pendingEdit.id)}
+                      >
+                        <img className="composer-pending-trash" src={trashGlyph} alt="" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </section>
+              )}
+            </>
+          )}
           <button className="composer-chevron-button" type="button" aria-label="Collapse composer">
             <svg className="composer-chevron-up-glyph" viewBox="0 0 9 5" aria-hidden="true">
               <path
@@ -1101,16 +2069,31 @@ function App() {
             </svg>
           </button>
           <input
-            className="composer-input"
+            className={`composer-input${isReveRendering ? ' composer-input--rendering' : ''}`}
             type="text"
-            value={composerInput}
+            value={isReveRendering ? '' : composerInput}
             onChange={(event) => setComposerInput(event.target.value)}
-            placeholder="Ask Reve"
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !canRender) {
+                return
+              }
+              event.preventDefault()
+              void handleRender()
+            }}
+            placeholder={isReveRendering ? '' : pendingEditCount > 0 ? '' : 'Ask Reve'}
             aria-label="Composer input"
+            readOnly={isReveRendering}
           />
-          <button className="composer-add-button" type="button" aria-label="Add change" onClick={handleAddComposerChange}>
+          {isReveRendering && <span className="composer-rendering-text" aria-hidden="true">Rendering</span>}
+          <button
+            className="composer-add-button"
+            data-add-menu-trigger="true"
+            type="button"
+            aria-label="Add change"
+            onClick={handleAddMenuTriggerClick}
+          >
             <svg className="composer-add-glyph" viewBox="0 0 20 20" aria-hidden="true">
-              <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" stroke="currentColor" />
+              <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
               <path
                 d="M10.3555 14.082C10.3555 14.2227 10.3027 14.3438 10.1973 14.4453C10.0957 14.5508 9.97266 14.6035 9.82812 14.6035C9.68359 14.6035 9.56055 14.5508 9.45898 14.4453C9.35742 14.3438 9.30664 14.2227 9.30664 14.082V5.45703C9.30664 5.31641 9.35742 5.19531 9.45898 5.09375C9.56055 4.98828 9.68359 4.93555 9.82812 4.93555C9.97266 4.93555 10.0957 4.98828 10.1973 5.09375C10.3027 5.19531 10.3555 5.31641 10.3555 5.45703V14.082ZM5.51562 10.291C5.375 10.291 5.25195 10.2402 5.14648 10.1387C5.04492 10.0371 4.99414 9.91406 4.99414 9.76953C4.99414 9.625 5.04492 9.50195 5.14648 9.40039C5.25195 9.29492 5.375 9.24219 5.51562 9.24219H14.1406C14.2812 9.24219 14.4023 9.29492 14.5039 9.40039C14.6094 9.50195 14.6621 9.625 14.6621 9.76953C14.6621 9.91406 14.6094 10.0371 14.5039 10.1387C14.4023 10.2402 14.2812 10.291 14.1406 10.291H5.51562Z"
                 fill="currentColor"
@@ -1119,19 +2102,46 @@ function App() {
           </button>
         </div>
         <button
-          className={`composer-render-button${hasComposerChanges ? ' active' : ''}`}
+          className={`composer-render-button${canRender ? ' active' : ''}`}
           type="button"
           aria-label="Render"
-          disabled={!hasComposerChanges}
-          onClick={handleRender}
+          disabled={!canRender}
+          onClick={() => {
+            void handleRender()
+          }}
         >
           Render
         </button>
       </nav>
+      {hasRenderHistory && (
+        <section
+          className="render-filmstrip"
+          style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
+          aria-label="Render history"
+        >
+          <div className="render-filmstrip-track">
+            {renderHistory.map((historyImage) => (
+              <button
+                key={historyImage.id}
+                className={`render-filmstrip-item${historyImage.src === displayImageSrc ? ' active' : ''}`}
+                type="button"
+                aria-label="Load render"
+                onClick={() => {
+                  setDisplayImageSrc(historyImage.src)
+                  setSourceImageLoaded(false)
+                }}
+              >
+                <img className="render-filmstrip-image" src={historyImage.src} alt="" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      {reveRenderError && <p className="composer-render-error">{reveRenderError}</p>}
       <main className="image-stage">
         <div
           ref={imageFrameRef}
-          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}`}
+          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
           onMouseMove={handleImageMouseMove}
           onMouseLeave={handleImageMouseLeave}
           onClick={handleImageClick}
@@ -1140,7 +2150,52 @@ function App() {
           onPointerUp={handleImagePointerUp}
           onPointerCancel={handleImagePointerCancel}
         >
-          <img className="hero-image" src={montBlancTrail} alt="Mont Blanc trail landscape" draggable={false} />
+          <img
+            ref={sourceImageRef}
+            src={displayImageSrc}
+            alt=""
+            aria-hidden="true"
+            style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+            onLoad={() => setSourceImageLoaded(true)}
+          />
+          {hasNoAdjustments(adjustSliderValues) ? (
+            <img
+              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}`}
+              src={displayImageSrc}
+              alt="Mont Blanc trail landscape"
+              draggable={false}
+            />
+          ) : (
+            <canvas
+              ref={heroWebGLCanvasRef}
+              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}`}
+              aria-label="Mont Blanc trail landscape with adjustments"
+            />
+          )}
+          {renderRevealTransition && (
+            <div className="hero-image-reveal-layer" aria-hidden="true">
+              <img
+                className="hero-image-reveal hero-image-reveal--old"
+                src={renderRevealTransition.previousImageSrc}
+                alt=""
+                style={
+                  {
+                    '--render-reveal-starting-blur': `${renderRevealTransition.startingBlurPx}px`,
+                  } as CSSProperties
+                }
+              />
+              <img
+                className="hero-image-reveal hero-image-reveal--new"
+                src={renderRevealTransition.nextImageSrc}
+                alt=""
+                style={
+                  {
+                    '--render-reveal-starting-blur': `${renderRevealTransition.startingBlurPx}px`,
+                  } as CSSProperties
+                }
+              />
+            </div>
+          )}
           <div className="object-overlays" aria-label="Object overlays">
             {showObjectOverlays &&
               imageObjects.map((imageObject) => (
@@ -1213,7 +2268,47 @@ function App() {
               )
             })()}
           </div>
-          <div className="comment-layer" aria-label="Comment annotations">
+          <div
+            ref={commentLayerRef}
+            className="comment-layer"
+            aria-label="Comment annotations"
+            onPointerDown={(e) => {
+              const el = e.target as Element
+              if (
+                el.closest?.('.comment-point, .comment-collapsed-chip') ||
+                (el.tagName === 'path' && el.classList?.contains('comment-stroke') && !el.classList?.contains('comment-stroke--draft'))
+              ) {
+                e.stopPropagation()
+              }
+            }}
+            onPointerUp={(e) => {
+              const el = e.target as Element
+              if (
+                el.closest?.('.comment-point, .comment-collapsed-chip') ||
+                (el.tagName === 'path' && el.classList?.contains('comment-stroke') && !el.classList?.contains('comment-stroke--draft'))
+              ) {
+                e.stopPropagation()
+              }
+            }}
+            onPointerMove={(e) => {
+              const el = e.target as Element
+              if (
+                el.closest?.('.comment-point, .comment-collapsed-chip') ||
+                (el.tagName === 'path' && el.classList?.contains('comment-stroke') && !el.classList?.contains('comment-stroke--draft'))
+              ) {
+                e.stopPropagation()
+              }
+            }}
+            onPointerCancel={(e) => {
+              const el = e.target as Element
+              if (
+                el.closest?.('.comment-point, .comment-collapsed-chip') ||
+                (el.tagName === 'path' && el.classList?.contains('comment-stroke') && !el.classList?.contains('comment-stroke--draft'))
+              ) {
+                e.stopPropagation()
+              }
+            }}
+          >
             <svg className="comment-strokes" viewBox={`0 0 ${sourceImageSize.width} ${sourceImageSize.height}`} preserveAspectRatio="none" aria-hidden="true">
               {commentAnnotations
                 .filter((comment) => comment.kind === 'stroke' && comment.strokePoints.length > 1)
@@ -1265,7 +2360,8 @@ function App() {
                   className="comment-collapsed-chip"
                   style={sourcePointToPercent(getCommentAnchorPoint(comment))}
                   type="button"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation()
                     if (!imageFrameRef.current) {
                       return
                     }
@@ -1325,9 +2421,10 @@ function App() {
               <div className="comment-panel-actions">
                 <button
                   className="object-prompt-glyph-button"
+                  data-add-menu-trigger="true"
                   type="button"
                   aria-label="Add comment"
-                  onClick={() => handleAddCommentToComposer(activeComment.id)}
+                  onClick={handleAddMenuTriggerClick}
                 >
                   <svg className="object-prompt-glyph" viewBox="0 0 20 20" aria-hidden="true">
                     <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
@@ -1370,7 +2467,13 @@ function App() {
             <div className="object-prompt-header">
               <h3 className="object-prompt-title">{displayedObjectPrompt.name}</h3>
               <div className="object-prompt-glyphs">
-                <button className="object-prompt-glyph-button" type="button" aria-label="Add object prompt">
+                <button
+                  className="object-prompt-glyph-button"
+                  data-add-menu-trigger="true"
+                  type="button"
+                  aria-label="Add object prompt"
+                  onClick={handleAddMenuTriggerClick}
+                >
                   <svg className="object-prompt-glyph" viewBox="0 0 20 20" aria-hidden="true">
                     <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
                     <path
@@ -1393,6 +2496,7 @@ function App() {
               ref={objectPromptTextareaRef}
               className="object-prompt-textarea"
               value={displayedObjectPromptText}
+              placeholder={getObjectPromptText(displayedObjectPrompt.name)}
               onChange={(event) =>
                 setObjectPromptTexts((previous) => ({
                   ...previous,
