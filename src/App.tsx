@@ -1622,6 +1622,7 @@ function App() {
                       ? ` bottom-left-panel--adjust${adjustSliderDraggingId != null ? ' bottom-left-panel--adjust-dragging' : ''}`
                       : ''
             }`}
+            style={{ bottom: `${controlsBottomPx + 45}px` }}
             aria-label={`${activeBottomLeftMenu} menu`}
           >
             {activeBottomLeftMenu === 'info' && (
