@@ -134,6 +134,9 @@ const sourceImageSize = {
   height: 1536,
 }
 
+/** Vanishing point in source image pixels (top-left origin). Objects scale with distance from this point. */
+const VANISHING_POINT = { x: 1360, y: 430 }
+
 const imageObjects = [
   { name: 'Valley', x: 0, y: 72, width: 2720, height: 1464 },
   { name: 'Sky', x: 0, y: 0, width: 2720, height: 341 },
@@ -167,6 +170,51 @@ const getObjectBoxStyle = (imageObject: (typeof imageObjects)[number]) => ({
   height: `${(imageObject.height / sourceImageSize.height) * 100}%`,
 })
 
+type ObjectDisplayBounds = { centerX: number; centerY: number; width: number; height: number }
+
+function getObjectDisplayBounds(
+  imageObject: (typeof imageObjects)[number],
+  options: {
+    positionOverrides: Record<string, { x: number; y: number }>
+    draggedObjectName: string | null
+    dragCurrentCenter: { x: number; y: number } | null
+  },
+): ObjectDisplayBounds {
+  const origCenterX = imageObject.x + imageObject.width / 2
+  const origCenterY = imageObject.y + imageObject.height / 2
+  const origVerticalDist = Math.abs(origCenterY - VANISHING_POINT.y) || 1
+
+  let centerX = origCenterX
+  let centerY = origCenterY
+  if (options.draggedObjectName === imageObject.name && options.dragCurrentCenter) {
+    centerX = options.dragCurrentCenter.x
+    centerY = options.dragCurrentCenter.y
+  } else if (options.positionOverrides[imageObject.name]) {
+    centerX = options.positionOverrides[imageObject.name].x
+    centerY = options.positionOverrides[imageObject.name].y
+  }
+
+  const currentVerticalDist = Math.abs(centerY - VANISHING_POINT.y) || 0.001
+  const scale = currentVerticalDist / origVerticalDist
+  const width = imageObject.width * scale
+  const height = imageObject.height * scale
+
+  return { centerX, centerY, width, height }
+}
+
+function getObjectBoxStyleFromDisplayBounds(bounds: ObjectDisplayBounds): CSSProperties {
+  const leftPct = ((bounds.centerX - bounds.width / 2) / sourceImageSize.width) * 100
+  const topPct = ((bounds.centerY - bounds.height / 2) / sourceImageSize.height) * 100
+  const widthPct = (bounds.width / sourceImageSize.width) * 100
+  const heightPct = (bounds.height / sourceImageSize.height) * 100
+  return {
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
+    width: `${widthPct}%`,
+    height: `${heightPct}%`,
+  }
+}
+
 const getSmallestObjectAtSourcePoint = (sourceX: number, sourceY: number) =>
   imageObjects
     .filter(
@@ -185,6 +233,56 @@ const getSmallestObjectAtClientPoint = (clientX: number, clientY: number, imageF
   const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
 
   return getSmallestObjectAtSourcePoint(sourceX, sourceY)
+}
+
+function getSmallestObjectAtSourcePointWithDisplay(
+  sourceX: number,
+  sourceY: number,
+  options: {
+    positionOverrides: Record<string, { x: number; y: number }>
+    draggedObjectName: string | null
+    dragCurrentCenter: { x: number; y: number } | null
+  },
+): (typeof imageObjects)[number] | null {
+  const hitObjects = imageObjects.filter((obj) => {
+    const b = getObjectDisplayBounds(obj, options)
+    const left = b.centerX - b.width / 2
+    const top = b.centerY - b.height / 2
+    return (
+      sourceX >= left &&
+      sourceX <= left + b.width &&
+      sourceY >= top &&
+      sourceY <= top + b.height
+    )
+  })
+  return hitObjects.sort((a, b) => {
+    const ba = getObjectDisplayBounds(a, options)
+    const bb = getObjectDisplayBounds(b, options)
+    return ba.width * ba.height - bb.width * bb.height
+  })[0] ?? null
+}
+
+/** Get raw base64 string for Reve API reference_image (no data URL prefix). */
+const getReferenceImageBase64 = async (imageSrc: string): Promise<string> => {
+  const dataUrlMatch = /^data:image\/\w+;base64,(.+)$/.exec(imageSrc)
+  if (dataUrlMatch) {
+    return dataUrlMatch[1]
+  }
+  const response = await fetch(imageSrc)
+  if (!response.ok) {
+    throw new Error(`Failed to load reference image: ${response.status}`)
+  }
+  const blob = await response.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const match = /^data:[^;]+;base64,(.+)$/.exec(dataUrl)
+      resolve(match ? match[1] : '')
+    }
+    reader.onerror = () => reject(new Error('Failed to read reference image'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 const objectPromptDescriptions: Record<string, string> = {
@@ -404,6 +502,11 @@ function App() {
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
   const [renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
+  const [objectPositionOverrides, setObjectPositionOverrides] = useState<Record<string, { x: number; y: number }>>({})
+  const [draggedObjectName, setDraggedObjectName] = useState<string | null>(null)
+  const [dragCurrentCenter, setDragCurrentCenter] = useState<{ x: number; y: number } | null>(null)
+  const objectDragPointerIdRef = useRef<number | null>(null)
+  const dragStartCenterRef = useRef<{ x: number; y: number } | null>(null)
   const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
   const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
   const [activeObjectPromptName, setActiveObjectPromptName] = useState<string | null>(null)
@@ -802,7 +905,8 @@ function App() {
       return
     }
 
-    const prompt = `Base scene: ${imageDescription}\n\nEdit request: ${promptParts.join('\n')}`
+    const editInstruction = promptParts.join('\n')
+    const currentImageSrc = displayImageSrc
 
     setIsReveRendering(true)
     setReveRenderError(null)
@@ -812,9 +916,23 @@ function App() {
       renderRevealTimeoutRef.current = null
     }
     setRenderRevealTransition(null)
+    // Clear comment annotations immediately when rendering starts.
+    setCommentAnnotations([])
+    setIsPendingEditsMenuOpen(false)
+    setActiveCommentId(null)
+    setIsDrawingCommentStroke(false)
+    setDraftCommentStrokePoints([])
+    setDraftCommentBoxStart(null)
+    setDraftCommentBoxEnd(null)
+    commentBoxModeRef.current = false
+    draftCommentStrokePointsRef.current = []
+    commentPointerIdRef.current = null
+    commentStrokeStartPointRef.current = null
 
     try {
-      const response = await fetch('https://api.reve.com/v1/image/create', {
+      const referenceImageBase64 = await getReferenceImageBase64(currentImageSrc)
+
+      const response = await fetch('https://api.reve.com/v1/image/edit', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${reveApiKey}`,
@@ -822,7 +940,8 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          prompt,
+          edit_instruction: editInstruction,
+          reference_image: referenceImageBase64,
           aspect_ratio: '16:9',
           version: 'latest',
         }),
@@ -873,16 +992,6 @@ function App() {
       setDisplayImageSrc(nextImageSrc)
       setSourceImageLoaded(false)
       setComposerInput('')
-      setCommentAnnotations([])
-      setActiveCommentId(null)
-      setIsDrawingCommentStroke(false)
-      setDraftCommentStrokePoints([])
-      setDraftCommentBoxStart(null)
-      setDraftCommentBoxEnd(null)
-      commentBoxModeRef.current = false
-      draftCommentStrokePointsRef.current = []
-      commentPointerIdRef.current = null
-      commentStrokeStartPointRef.current = null
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Reve render failed.'
       setReveRenderError(message)
@@ -922,7 +1031,16 @@ function App() {
     }
 
     const imageFrameBounds = event.currentTarget.getBoundingClientRect()
-    const hoveredObject = getSmallestObjectAtClientPoint(event.clientX, event.clientY, imageFrameBounds)
+    const localX = event.clientX - imageFrameBounds.left
+    const localY = event.clientY - imageFrameBounds.top
+    const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
+    const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
+    const displayOptions = {
+      positionOverrides: objectPositionOverrides,
+      draggedObjectName,
+      dragCurrentCenter,
+    }
+    const hoveredObject = getSmallestObjectAtSourcePointWithDisplay(sourceX, sourceY, displayOptions)
 
     setHoveredObjectName(hoveredObject?.name ?? null)
     setHoverTooltipPosition({ x: event.clientX, y: event.clientY })
@@ -940,19 +1058,53 @@ function App() {
     }
 
     const imageFrameBounds = event.currentTarget.getBoundingClientRect()
-    const clickedObject = getSmallestObjectAtClientPoint(event.clientX, event.clientY, imageFrameBounds)
+    const localX = event.clientX - imageFrameBounds.left
+    const localY = event.clientY - imageFrameBounds.top
+    const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
+    const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
+    const displayOptions = {
+      positionOverrides: objectPositionOverrides,
+      draggedObjectName,
+      dragCurrentCenter,
+    }
+    const clickedObject = getSmallestObjectAtSourcePointWithDisplay(sourceX, sourceY, displayOptions)
 
     if (!clickedObject) {
       closeObjectPrompt()
       return
     }
 
-    openObjectPrompt(clickedObject.name, imageFrameBounds)
+    // Opening the object prompt is handled in pointer up when the interaction was a click (no drag)
   }
 
   const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
       return
+    }
+
+    if (selectedTool === 'select') {
+      const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+      const localX = event.clientX - imageFrameBounds.left
+      const localY = event.clientY - imageFrameBounds.top
+      const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
+      const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
+      const displayOptions = {
+        positionOverrides: objectPositionOverrides,
+        draggedObjectName,
+        dragCurrentCenter,
+      }
+      const clickedObject = getSmallestObjectAtSourcePointWithDisplay(sourceX, sourceY, displayOptions)
+      if (clickedObject) {
+        const bounds = getObjectDisplayBounds(clickedObject, displayOptions)
+        const center = { x: bounds.centerX, y: bounds.centerY }
+        event.preventDefault()
+        setDraggedObjectName(clickedObject.name)
+        setDragCurrentCenter(center)
+        dragStartCenterRef.current = center
+        objectDragPointerIdRef.current = event.pointerId
+        event.currentTarget.setPointerCapture(event.pointerId)
+        return
+      }
     }
 
     if (selectedTool !== 'commentDraw') {
@@ -985,6 +1137,13 @@ function App() {
       return
     }
 
+    if (objectDragPointerIdRef.current === event.pointerId && draggedObjectName) {
+      const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+      const sourcePoint = clientPointToSource(event.clientX, event.clientY, imageFrameBounds)
+      setDragCurrentCenter({ x: sourcePoint.x, y: sourcePoint.y })
+      return
+    }
+
     if (selectedTool !== 'commentDraw' || commentPointerIdRef.current !== event.pointerId) {
       return
     }
@@ -1003,6 +1162,24 @@ function App() {
 
   const handleImagePointerUp = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
+      return
+    }
+
+    if (objectDragPointerIdRef.current === event.pointerId && draggedObjectName) {
+      const imageFrameBounds = event.currentTarget.getBoundingClientRect()
+      const start = dragStartCenterRef.current
+      const end = dragCurrentCenter
+      const movement = start && end ? Math.hypot(end.x - start.x, end.y - start.y) : 0
+      if (movement < 8) {
+        openObjectPrompt(draggedObjectName, imageFrameBounds)
+      } else if (dragCurrentCenter) {
+        setObjectPositionOverrides((prev) => ({ ...prev, [draggedObjectName]: dragCurrentCenter }))
+      }
+      setDraggedObjectName(null)
+      setDragCurrentCenter(null)
+      dragStartCenterRef.current = null
+      objectDragPointerIdRef.current = null
+      event.currentTarget.releasePointerCapture(event.pointerId)
       return
     }
 
@@ -1049,6 +1226,17 @@ function App() {
 
   const handleImagePointerCancel = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
+      return
+    }
+
+    if (objectDragPointerIdRef.current === event.pointerId) {
+      setDraggedObjectName(null)
+      setDragCurrentCenter(null)
+      dragStartCenterRef.current = null
+      objectDragPointerIdRef.current = null
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
       return
     }
 
@@ -1184,11 +1372,22 @@ function App() {
 
     const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
     const measuredPanelHeight = objectPromptPanelRef.current.offsetHeight
-    const nextPosition = getObjectPromptPanelPosition(displayedObjectPrompt, imageFrameBounds, measuredPanelHeight)
-    const objectCenterX =
-      imageFrameBounds.left + ((displayedObjectPrompt.x + displayedObjectPrompt.width / 2) / sourceImageSize.width) * imageFrameBounds.width
-    const objectCenterY =
-      imageFrameBounds.top + ((displayedObjectPrompt.y + displayedObjectPrompt.height / 2) / sourceImageSize.height) * imageFrameBounds.height
+    const displayOptions = {
+      positionOverrides: objectPositionOverrides,
+      draggedObjectName,
+      dragCurrentCenter,
+    }
+    const bounds = getObjectDisplayBounds(displayedObjectPrompt, displayOptions)
+    const displayObjectForPanel = {
+      ...displayedObjectPrompt,
+      x: bounds.centerX - bounds.width / 2,
+      y: bounds.centerY - bounds.height / 2,
+      width: bounds.width,
+      height: bounds.height,
+    }
+    const nextPosition = getObjectPromptPanelPosition(displayObjectForPanel, imageFrameBounds, measuredPanelHeight)
+    const objectCenterX = imageFrameBounds.left + (bounds.centerX / sourceImageSize.width) * imageFrameBounds.width
+    const objectCenterY = imageFrameBounds.top + (bounds.centerY / sourceImageSize.height) * imageFrameBounds.height
     const panelCenterX = nextPosition.left + 100
     const panelCenterY = nextPosition.top + measuredPanelHeight / 2
     const nextFromOffset = clampVectorMagnitude(objectCenterX - panelCenterX, objectCenterY - panelCenterY, 100)
@@ -1197,7 +1396,7 @@ function App() {
     setObjectPromptPanelPosition((previous) =>
       previous.left === nextPosition.left && previous.top === nextPosition.top ? previous : nextPosition,
     )
-  }, [displayedObjectPrompt, objectPromptAnimationKey])
+  }, [displayedObjectPrompt, objectPromptAnimationKey, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
   useEffect(() => {
     if (activeBottomLeftMenu === null) {
@@ -1476,6 +1675,49 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (renderHistory.length < 2) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+        return
+      }
+
+      const activeEl = document.activeElement
+      if (
+        activeEl &&
+        (activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          (activeEl instanceof HTMLElement && activeEl.isContentEditable))
+      ) {
+        return
+      }
+
+      const currentIndex = renderHistory.findIndex((item) => item.src === displayImageSrc)
+      const index = currentIndex >= 0 ? currentIndex : 0
+      const length = renderHistory.length
+      let nextIndex: number
+      if (event.key === 'ArrowLeft') {
+        nextIndex = (index - 1 + length) % length
+      } else {
+        nextIndex = (index + 1) % length
+      }
+      const nextItem = renderHistory[nextIndex]
+      if (nextItem) {
+        event.preventDefault()
+        setDisplayImageSrc(nextItem.src)
+        setSourceImageLoaded(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [renderHistory, displayImageSrc])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
@@ -1555,6 +1797,7 @@ function App() {
       </nav>
       <p
         className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}`}
+        style={{ bottom: `${controlsBottomPx + 50}px` }}
         aria-live="polite"
       >
         {TOOL_INSTRUCTIONS[selectedTool]}
@@ -2199,17 +2442,34 @@ function App() {
           )}
           <div className="object-overlays" aria-label="Object overlays">
             {showObjectOverlays &&
-              imageObjects.map((imageObject) => (
-                <div
-                  key={imageObject.name}
-                  className="object-box"
-                  style={getObjectBoxStyle(imageObject)}
-                >
-                  <span className="object-box-label">{imageObject.name}</span>
-                </div>
-              ))}
-            {selectedImageObject && (
-              <div className="object-hover-corners" style={getObjectBoxStyle(selectedImageObject)}>
+              (() => {
+                const displayOptions = {
+                  positionOverrides: objectPositionOverrides,
+                  draggedObjectName,
+                  dragCurrentCenter,
+                }
+                return imageObjects.map((imageObject) => {
+                  const bounds = getObjectDisplayBounds(imageObject, displayOptions)
+                  return (
+                    <div
+                      key={imageObject.name}
+                      className="object-box"
+                      style={getObjectBoxStyleFromDisplayBounds(bounds)}
+                    >
+                      <span className="object-box-label">{imageObject.name}</span>
+                    </div>
+                  )
+                })
+              })()}
+            {selectedImageObject && (() => {
+              const displayOptions = {
+                positionOverrides: objectPositionOverrides,
+                draggedObjectName,
+                dragCurrentCenter,
+              }
+              const bounds = getObjectDisplayBounds(selectedImageObject, displayOptions)
+              return (
+                <div className="object-hover-corners" style={getObjectBoxStyleFromDisplayBounds(bounds)}>
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-tl"
                   src={boundingBoxTl}
@@ -2235,12 +2495,20 @@ function App() {
                   style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
                 />
               </div>
-            )}
+              )
+            }
+            )()}
             {transientHighlightedObject && (!selectedImageObject || transientHighlightedObject.name !== selectedImageObject.name) && (() => {
+              const displayOptions = {
+                positionOverrides: objectPositionOverrides,
+                draggedObjectName,
+                dragCurrentCenter,
+              }
+              const bounds = getObjectDisplayBounds(transientHighlightedObject, displayOptions)
               const isFromList = transientHighlightedObjectName === hoveredObjectListName
               const staticClass = isFromList ? ' object-corner-marker--static' : ''
               return (
-                <div key={transientHighlightedObject.name} className="object-hover-corners" style={getObjectBoxStyle(transientHighlightedObject)}>
+                <div key={transientHighlightedObject.name} className="object-hover-corners" style={getObjectBoxStyleFromDisplayBounds(bounds)}>
                   <img
                     className={`object-corner-marker object-corner-marker-tl${staticClass}`}
                     src={boundingBoxTl}
