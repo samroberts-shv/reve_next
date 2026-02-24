@@ -5,6 +5,7 @@ import {
   type PointerEvent,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -24,6 +25,12 @@ import webGlyph from './assets/glyphs/web.svg'
 import cameraGlyph from './assets/glyphs/camera.svg'
 import closeGlyph from './assets/glyphs/close.svg'
 import searchGlyph from './assets/glyphs/search.svg'
+import addGlyph from './assets/glyphs/add.svg'
+import arrowUpCircleGlyph from './assets/glyphs/arrow_up_circle.svg'
+import chevronDownGlyph from './assets/glyphs/chevron_down.svg'
+import favOnGlyph from './assets/glyphs/fav_on.svg'
+import trancheGlyph from './assets/glyphs/tranche.svg'
+import gridGlyph from './assets/glyphs/grid.svg'
 import adjustGlyph from './assets/glyphs/adjust.svg'
 import upscaleGlyph from './assets/glyphs/upscale.svg'
 import isolateGlyph from './assets/glyphs/isolate.svg'
@@ -32,9 +39,21 @@ import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
+import EditView from './views/EditView'
+import GalleryView from './views/GalleryView'
+import TrancheView from './views/TrancheView'
+import FavoritesView from './views/FavoritesView'
 
 type Tool = 'commentDraw' | 'select' | 'reframe'
 type BottomLeftMenu = 'info' | 'objects' | 'adjust' | 'effects' | 'quickEdit' | null
+type AppView = 'edit' | 'gallery' | 'tranche' | 'favorites'
+type ViewRect = { left: number; top: number; width: number; height: number }
+type ViewTransition = {
+  imageSrc: string
+  fromRect: ViewRect
+  toRect: ViewRect
+  animateToTarget: boolean
+}
 
 const TOOL_INSTRUCTIONS: Record<Tool, string> = {
   commentDraw:
@@ -360,6 +379,12 @@ const renderBlurMaxPx = 100
 const renderBlurCycleMs = 3000
 const renderRevealCrossfadeMs = 500
 const renderRevealSharpenMs = 500
+const viewTransitionDurationMs = 500
+const galleryTileMinSizePx = 200
+const galleryTileMaxSizePx = 300
+const galleryTileGapPx = 10
+const galleryTopOffsetPx = 70
+const galleryChatColumnWidthPx = 320
 const filmstripThumbnailHeightPx = 50
 const filmstripBottomGapPx = 10
 const filmstripControlsGapPx = 10
@@ -370,6 +395,24 @@ const prototypePastWebSearches = [
   'Galaxy',
   'Santa Cruz Boardwalk',
   'Modern Painting',
+]
+
+const galleryPlaceholderColors = [
+  '#ef4444',
+  '#f97316',
+  '#f59e0b',
+  '#84cc16',
+  '#22c55e',
+  '#10b981',
+  '#14b8a6',
+  '#06b6d4',
+  '#0ea5e9',
+  '#3b82f6',
+  '#6366f1',
+  '#8b5cf6',
+  '#a855f7',
+  '#d946ef',
+  '#ec4899',
 ]
 
 const sourcePointToPercent = (point: SourcePoint) => ({
@@ -485,7 +528,52 @@ const getRectStrokePoints = (start: SourcePoint, end: SourcePoint): SourcePoint[
   return [topLeft, topRight, bottomRight, bottomLeft, topLeft]
 }
 
+const getEditImageRect = (): ViewRect => {
+  const width = Math.min(window.innerWidth - 20, (window.innerHeight - 20) * (2720 / 1536))
+  const height = width / (2720 / 1536)
+  return {
+    left: (window.innerWidth - width) / 2,
+    top: (window.innerHeight - height) / 2,
+    width,
+    height,
+  }
+}
+
+const getGalleryGridMetrics = () => {
+  const availableWidth = Math.max(
+    galleryTileMinSizePx,
+    window.innerWidth - galleryChatColumnWidthPx - galleryTileGapPx * 2,
+  )
+  const minimumColumnsForMaxSize = Math.max(
+    1,
+    Math.ceil((availableWidth + galleryTileGapPx) / (galleryTileMaxSizePx + galleryTileGapPx)),
+  )
+  const maximumColumnsForMinSize = Math.max(
+    1,
+    Math.floor((availableWidth + galleryTileGapPx) / (galleryTileMinSizePx + galleryTileGapPx)),
+  )
+  const columns = Math.max(minimumColumnsForMaxSize, Math.min(maximumColumnsForMinSize, maximumColumnsForMinSize))
+  const tileSize = Math.min(
+    galleryTileMaxSizePx,
+    Math.max(galleryTileMinSizePx, (availableWidth - (columns - 1) * galleryTileGapPx) / columns),
+  )
+  return { columns, tileSize }
+}
+
+const getGalleryTileRect = (tileIndex: number): ViewRect => {
+  const { columns, tileSize } = getGalleryGridMetrics()
+  const row = Math.floor(tileIndex / columns)
+  const column = tileIndex % columns
+  return {
+    left: galleryTileGapPx + column * (tileSize + galleryTileGapPx),
+    top: galleryTopOffsetPx + row * (tileSize + galleryTileGapPx),
+    width: tileSize,
+    height: tileSize,
+  }
+}
+
 function App() {
+  const [currentView, setCurrentView] = useState<AppView>('edit')
   const [selectedTool, setSelectedTool] = useState<Tool>('commentDraw')
   const [toolInstructionFadedOut, setToolInstructionFadedOut] = useState(false)
   const toolInstructionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -497,6 +585,7 @@ function App() {
   const [composerInput, setComposerInput] = useState('')
   const [composerChanges] = useState<string[]>([])
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
+  const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
   const [isReveRendering, setIsReveRendering] = useState(false)
   const [reveRenderError, setReveRenderError] = useState<string | null>(null)
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
@@ -560,6 +649,7 @@ function App() {
   const adjustRendererRef = useRef<ReturnType<typeof createAdjustRenderer> | null>(null)
   const renderCycleStartedAtRef = useRef<number | null>(null)
   const renderRevealTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const viewTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
   const [pendingEditThumbnailSrcById, setPendingEditThumbnailSrcById] = useState<Record<string, string>>({})
@@ -570,14 +660,30 @@ function App() {
   const hasComposerChanges = composerInput.trim().length > 0 || composerChanges.length > 0 || commentAnnotations.length > 0
   const canRender = hasComposerChanges && !isReveRendering
   const hasRenderHistory = renderHistory.length > 0
+  const isCollectionView = currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites'
+  const showBottomUi = !isCollectionView
+  const showComposer = showBottomUi || isCollectionView
   const controlsBottomPx = hasRenderHistory ? filmstripBottomGapPx + filmstripThumbnailHeightPx + filmstripControlsGapPx : 10
-  const pendingEdits: PendingEdit[] = commentAnnotations
-    .map((comment) => ({
-      id: comment.id,
-      text: comment.text.trim(),
-      annotation: comment,
-    }))
-    .filter((pendingEdit) => pendingEdit.text.length > 0)
+  const currentViewLabel =
+    currentView === 'edit'
+      ? 'Edit View'
+      : currentView === 'gallery'
+        ? 'Gallery View'
+        : currentView === 'tranche'
+          ? 'Tranche View'
+          : 'Favorites View'
+  const topInstructionText = currentView === 'edit' ? TOOL_INSTRUCTIONS[selectedTool] : currentViewLabel
+  const pendingEdits: PendingEdit[] = useMemo(
+    () =>
+      commentAnnotations
+        .map((comment) => ({
+          id: comment.id,
+          text: comment.text.trim(),
+          annotation: comment,
+        }))
+        .filter((pendingEdit) => pendingEdit.text.length > 0),
+    [commentAnnotations],
+  )
   const pendingEditCount = pendingEdits.length
   const isInteractionMenuOpen =
     activeBottomLeftMenu !== null ||
@@ -1006,6 +1112,9 @@ function App() {
       if (renderRevealTimeoutRef.current !== null) {
         window.clearTimeout(renderRevealTimeoutRef.current)
       }
+      if (viewTransitionTimeoutRef.current !== null) {
+        window.clearTimeout(viewTransitionTimeoutRef.current)
+      }
     }
   }, [])
 
@@ -1277,6 +1386,68 @@ function App() {
     : ''
   const activeComment = activeCommentId ? commentAnnotations.find((comment) => comment.id === activeCommentId) ?? null : null
   activeCommentRef.current = activeComment
+
+  useEffect(() => {
+    if (currentView === 'edit') {
+      return
+    }
+    setActiveBottomLeftMenu(null)
+    setIsComposerAddMenuOpen(false)
+    setIsPendingEditsMenuOpen(false)
+    setActiveCommentId(null)
+    setDisplayedObjectPromptName(null)
+    setActiveObjectPromptName(null)
+  }, [currentView])
+
+  const startTransitionGalleryToEdit = (nextImageSrc: string, fromRect: ViewRect) => {
+    const nextTransition: ViewTransition = {
+      imageSrc: nextImageSrc,
+      fromRect,
+      toRect: getEditImageRect(),
+      animateToTarget: false,
+    }
+    setViewTransition(nextTransition)
+    setDisplayImageSrc(nextImageSrc)
+    setSourceImageLoaded(false)
+    setCurrentView('edit')
+    if (viewTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(viewTransitionTimeoutRef.current)
+    }
+    viewTransitionTimeoutRef.current = window.setTimeout(() => {
+      setViewTransition(null)
+      viewTransitionTimeoutRef.current = null
+    }, viewTransitionDurationMs)
+  }
+
+  const startTransitionEditToGallery = () => {
+    const nextTransition: ViewTransition = {
+      imageSrc: displayImageSrc,
+      fromRect: getEditImageRect(),
+      toRect: getGalleryTileRect(galleryPlaceholderColors.length),
+      animateToTarget: false,
+    }
+    setViewTransition(nextTransition)
+    setCurrentView('gallery')
+    if (viewTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(viewTransitionTimeoutRef.current)
+    }
+    viewTransitionTimeoutRef.current = window.setTimeout(() => {
+      setViewTransition(null)
+      viewTransitionTimeoutRef.current = null
+    }, viewTransitionDurationMs)
+  }
+
+  useEffect(() => {
+    if (!viewTransition || viewTransition.animateToTarget) {
+      return
+    }
+    const activateTimeout = window.setTimeout(() => {
+      setViewTransition((previous) => (previous ? { ...previous, animateToTarget: true } : previous))
+    }, 20)
+    return () => {
+      window.clearTimeout(activateTimeout)
+    }
+  }, [viewTransition])
 
   useLayoutEffect(() => {
     if (activeBottomLeftMenu !== 'info' || !infoTextareaRef.current) {
@@ -1775,33 +1946,100 @@ function App() {
 
   return (
     <>
-      <div className="top-overlay-bar" aria-hidden="true" />
+      <div className={`top-overlay-bar${isCollectionView ? ' top-overlay-bar--gallery' : ''}`} aria-hidden="true" />
       <header className="top-right-meta" aria-label="Project breadcrumb">
         <img className="reve-logo" src={reveLogo} alt="Reve logo" />
         <span className="meta-text light meta-link">My Work</span>
         <span className="meta-text separator">/</span>
-        <span className="meta-text light meta-link">Tour du Mont Blanc</span>
-        <span className="meta-text separator">/</span>
-        <span className="meta-text heavy">Courmayeur Afternoon</span>
+        <button
+          className="meta-text light meta-link meta-link-button"
+          type="button"
+          onClick={() => {
+            if (currentView === 'edit') {
+              startTransitionEditToGallery()
+            }
+          }}
+        >
+          Tour du Mont Blanc
+        </button>
+        {currentView === 'edit' && (
+          <>
+            <span className="meta-text separator">/</span>
+            <span className="meta-text heavy">Courmayeur</span>
+          </>
+        )}
       </header>
-      <nav className="top-right-actions" aria-label="Page actions">
-        <button className="glyph-button" type="button" aria-label="Favorite">
-          <img className="glyph-icon" src={favOffGlyph} alt="" />
-        </button>
-        <button className="glyph-button" type="button" aria-label="Share">
-          <img className="glyph-icon" src={shareGlyph} alt="" />
-        </button>
-        <button className="glyph-button" type="button" aria-label="More">
-          <img className="glyph-icon" src={moreGlyph} alt="" />
-        </button>
+      <nav
+        className={`top-right-actions${currentView === 'edit' ? ' top-right-actions--edit' : ''}`}
+        style={{ right: isCollectionView ? '340px' : '10px' }}
+        aria-label="Page actions"
+      >
+        {isCollectionView ? (
+          <>
+            <button className="gallery-header-control gallery-header-control-search" type="button" aria-label="Search">
+              <img className="gallery-header-control-glyph" src={searchGlyph} alt="" aria-hidden="true" />
+            </button>
+            <button className="gallery-header-control gallery-header-control-all" type="button" aria-label="All filter">
+              <span className="gallery-header-control-text">All</span>
+              <img className="gallery-header-control-glyph gallery-header-control-glyph-chevron" src={chevronDownGlyph} alt="" aria-hidden="true" />
+            </button>
+            <button className="gallery-header-control gallery-header-control-upload" type="button" aria-label="Upload">
+              <span className="gallery-header-control-text">Upload</span>
+            </button>
+            <div className="gallery-header-segmented" role="tablist" aria-label="Gallery view mode">
+              <button
+                className={`gallery-header-segment gallery-header-segment--left${currentView === 'favorites' ? ' active' : ''}`}
+                type="button"
+                role="tab"
+                aria-selected={currentView === 'favorites'}
+                onClick={() => setCurrentView('favorites')}
+              >
+                <img className="gallery-header-segment-glyph" src={favOnGlyph} alt="" aria-hidden="true" />
+              </button>
+              <button
+                className={`gallery-header-segment${currentView === 'tranche' ? ' active' : ''}`}
+                type="button"
+                role="tab"
+                aria-selected={currentView === 'tranche'}
+                onClick={() => setCurrentView('tranche')}
+              >
+                <img className="gallery-header-segment-glyph" src={trancheGlyph} alt="" aria-hidden="true" />
+              </button>
+              <button
+                className={`gallery-header-segment gallery-header-segment--right${currentView === 'gallery' ? ' active' : ''}`}
+                type="button"
+                role="tab"
+                aria-selected={currentView === 'gallery'}
+                onClick={() => setCurrentView('gallery')}
+              >
+                <img className="gallery-header-segment-glyph" src={gridGlyph} alt="" aria-hidden="true" />
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <button className="glyph-button" type="button" aria-label="Favorite">
+              <img className="glyph-icon" src={favOffGlyph} alt="" />
+            </button>
+            <button className="glyph-button" type="button" aria-label="Share">
+              <img className="glyph-icon" src={shareGlyph} alt="" />
+            </button>
+            <button className="glyph-button" type="button" aria-label="More">
+              <img className="glyph-icon" src={moreGlyph} alt="" />
+            </button>
+          </>
+        )}
       </nav>
+      {showBottomUi && (
       <p
         className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}`}
         style={{ bottom: `${controlsBottomPx + 50}px` }}
         aria-live="polite"
       >
-        {TOOL_INSTRUCTIONS[selectedTool]}
+        {topInstructionText}
       </p>
+      )}
+      {showBottomUi && (
       <nav className="tool-palette" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Tools">
         <button
           className={`tool-button${selectedTool === 'select' ? ' selected' : ''}`}
@@ -1850,6 +2088,8 @@ function App() {
           </svg>
         </button>
       </nav>
+      )}
+      {showBottomUi && (
       <div ref={bottomLeftContainerRef}>
         {activeBottomLeftMenu !== null && (
           <section
@@ -2114,15 +2354,13 @@ function App() {
           </button>
         </nav>
       </div>
-      <nav className="composer" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Composer">
-        <button className="composer-more-button" type="button" aria-label="More menu">
-          <svg className="composer-more-glyph" viewBox="0 0 13 3" aria-hidden="true">
-            <path
-              d="M1.29883 2.59082C1.05729 2.59082 0.838542 2.53385 0.642578 2.41992C0.446615 2.30143 0.289388 2.14421 0.170898 1.94824C0.0569661 1.75228 0 1.53581 0 1.29883C0 1.05729 0.0569661 0.838542 0.170898 0.642578C0.289388 0.446615 0.446615 0.291667 0.642578 0.177734C0.838542 0.0592448 1.05729 0 1.29883 0C1.53581 0 1.75228 0.0592448 1.94824 0.177734C2.14421 0.291667 2.29915 0.446615 2.41309 0.642578C2.53158 0.838542 2.59082 1.05729 2.59082 1.29883C2.59082 1.53581 2.53158 1.75228 2.41309 1.94824C2.29915 2.14421 2.14421 2.30143 1.94824 2.41992C1.75228 2.53385 1.53581 2.59082 1.29883 2.59082ZM6.37793 2.59082C6.13639 2.59082 5.91764 2.53385 5.72168 2.41992C5.52572 2.30143 5.36849 2.14421 5.25 1.94824C5.13607 1.75228 5.0791 1.53581 5.0791 1.29883C5.0791 1.05729 5.13607 0.838542 5.25 0.642578C5.36849 0.446615 5.52572 0.291667 5.72168 0.177734C5.91764 0.0592448 6.13639 0 6.37793 0C6.61491 0 6.83138 0.0592448 7.02734 0.177734C7.22331 0.291667 7.37826 0.446615 7.49219 0.642578C7.61068 0.838542 7.66992 1.05729 7.66992 1.29883C7.66992 1.53581 7.61068 1.75228 7.49219 1.94824C7.37826 2.14421 7.22331 2.30143 7.02734 2.41992C6.83138 2.53385 6.61491 2.59082 6.37793 2.59082ZM11.457 2.59082C11.2155 2.59082 10.9967 2.53385 10.8008 2.41992C10.6048 2.30143 10.4476 2.14421 10.3291 1.94824C10.2152 1.75228 10.1582 1.53581 10.1582 1.29883C10.1582 1.05729 10.2152 0.838542 10.3291 0.642578C10.4476 0.446615 10.6048 0.291667 10.8008 0.177734C10.9967 0.0592448 11.2155 0 11.457 0C11.694 0 11.9105 0.0592448 12.1064 0.177734C12.3024 0.291667 12.4596 0.446615 12.5781 0.642578C12.6966 0.838542 12.7559 1.05729 12.7559 1.29883C12.7559 1.53581 12.6966 1.75228 12.5781 1.94824C12.4596 2.14421 12.3024 2.30143 12.1064 2.41992C11.9105 2.53385 11.694 2.59082 11.457 2.59082Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
+      )}
+      {showComposer && (
+      <nav
+        className={`composer${isCollectionView ? ' composer--gallery-chat' : ''}`}
+        style={{ bottom: `${isCollectionView ? 10 : controlsBottomPx}px` }}
+        aria-label="Composer"
+      >
         {isComposerAddMenuOpen && (
           <section
             ref={addMenuRef}
@@ -2336,17 +2574,14 @@ function App() {
             aria-label="Add change"
             onClick={handleAddMenuTriggerClick}
           >
-            <svg className="composer-add-glyph" viewBox="0 0 20 20" aria-hidden="true">
-              <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
-              <path
-                d="M10.3555 14.082C10.3555 14.2227 10.3027 14.3438 10.1973 14.4453C10.0957 14.5508 9.97266 14.6035 9.82812 14.6035C9.68359 14.6035 9.56055 14.5508 9.45898 14.4453C9.35742 14.3438 9.30664 14.2227 9.30664 14.082V5.45703C9.30664 5.31641 9.35742 5.19531 9.45898 5.09375C9.56055 4.98828 9.68359 4.93555 9.82812 4.93555C9.97266 4.93555 10.0957 4.98828 10.1973 5.09375C10.3027 5.19531 10.3555 5.31641 10.3555 5.45703V14.082ZM5.51562 10.291C5.375 10.291 5.25195 10.2402 5.14648 10.1387C5.04492 10.0371 4.99414 9.91406 4.99414 9.76953C4.99414 9.625 5.04492 9.50195 5.14648 9.40039C5.25195 9.29492 5.375 9.24219 5.51562 9.24219H14.1406C14.2812 9.24219 14.4023 9.29492 14.5039 9.40039C14.6094 9.50195 14.6621 9.625 14.6621 9.76953C14.6621 9.91406 14.6094 10.0371 14.5039 10.1387C14.4023 10.2402 14.2812 10.291 14.1406 10.291H5.51562Z"
-                fill="currentColor"
-              />
-            </svg>
+            <img className="composer-add-glyph" src={addGlyph} alt="" aria-hidden="true" />
+          </button>
+          <button className="composer-more-inline-button" type="button" aria-label="More options">
+            <img className="composer-add-glyph" src={moreGlyph} alt="" aria-hidden="true" />
           </button>
         </div>
         <button
-          className={`composer-render-button${canRender ? ' active' : ''}`}
+          className={`composer-render-button${canRender ? ' active' : ''}${isCollectionView ? ' composer-render-button--gallery' : ''}`}
           type="button"
           aria-label="Render"
           disabled={!canRender}
@@ -2354,10 +2589,15 @@ function App() {
             void handleRender()
           }}
         >
-          Render
+          {isCollectionView ? (
+            <img className="composer-render-glyph" src={arrowUpCircleGlyph} alt="" aria-hidden="true" />
+          ) : (
+            'Render'
+          )}
         </button>
       </nav>
-      {hasRenderHistory && (
+      )}
+      {showBottomUi && hasRenderHistory && (
         <section
           className="render-filmstrip"
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
@@ -2381,8 +2621,9 @@ function App() {
           </div>
         </section>
       )}
-      {reveRenderError && <p className="composer-render-error">{reveRenderError}</p>}
-      <main className="image-stage">
+      {showBottomUi && reveRenderError && <p className="composer-render-error">{reveRenderError}</p>}
+      {currentView === 'edit' ? (
+      <EditView>
         <div
           ref={imageFrameRef}
           className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
@@ -2404,7 +2645,7 @@ function App() {
           />
           {hasNoAdjustments(adjustSliderValues) ? (
             <img
-              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}`}
+              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
               src={displayImageSrc}
               alt="Mont Blanc trail landscape"
               draggable={false}
@@ -2412,7 +2653,7 @@ function App() {
           ) : (
             <canvas
               ref={heroWebGLCanvasRef}
-              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}`}
+              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
               aria-label="Mont Blanc trail landscape with adjustments"
             />
           )}
@@ -2775,7 +3016,49 @@ function App() {
             />
           </section>
         )}
-      </main>
+      </EditView>
+      ) : currentView === 'gallery' ? (
+        <GalleryView
+          displayImageSrc={displayImageSrc}
+          placeholderColors={galleryPlaceholderColors}
+          onOpenEditView={(imageSrc, tileIndex) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          }}
+          isImageHidden={viewTransition !== null}
+        />
+      ) : currentView === 'tranche' ? (
+        <TrancheView
+          displayImageSrc={displayImageSrc}
+          placeholderColors={galleryPlaceholderColors}
+          onOpenEditView={(imageSrc, tileIndex) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          }}
+          isImageHidden={viewTransition !== null}
+        />
+      ) : (
+        <FavoritesView
+          displayImageSrc={displayImageSrc}
+          placeholderColors={galleryPlaceholderColors}
+          onOpenEditView={(imageSrc, tileIndex) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          }}
+          isImageHidden={viewTransition !== null}
+        />
+      )}
+      {viewTransition && (
+        <img
+          className="view-transition-image"
+          src={viewTransition.imageSrc}
+          alt=""
+          aria-hidden="true"
+          style={{
+            left: `${(viewTransition.animateToTarget ? viewTransition.toRect : viewTransition.fromRect).left}px`,
+            top: `${(viewTransition.animateToTarget ? viewTransition.toRect : viewTransition.fromRect).top}px`,
+            width: `${(viewTransition.animateToTarget ? viewTransition.toRect : viewTransition.fromRect).width}px`,
+            height: `${(viewTransition.animateToTarget ? viewTransition.toRect : viewTransition.fromRect).height}px`,
+          }}
+        />
+      )}
     </>
   )
 }

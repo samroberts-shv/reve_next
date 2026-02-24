@@ -11,6 +11,10 @@
   z-index: 20;
 }
 
+.top-overlay-bar--gallery {
+  width: calc(100% - 320px);
+}
+
 .top-right-meta {
   position: fixed;
   top: 20px;
@@ -52,6 +56,12 @@
   cursor: pointer;
 }
 
+.meta-link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .reve-logo + .meta-text {
   margin-left: 20px;
 }
@@ -84,12 +94,107 @@
   transition: background-color 150ms ease;
 }
 
+.top-right-actions--edit .glyph-button {
+  background-color: #1a1a1a;
+  border: 1px solid #333333;
+  border-radius: 10px;
+}
+
 .glyph-button:hover {
   background-color: #333333;
 }
 
 .glyph-icon {
   display: block;
+}
+
+.gallery-header-control {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #333333;
+  border-radius: 10px;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  font-family: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.gallery-header-control:hover {
+  background-color: #333333;
+}
+
+.gallery-header-control-search {
+  width: 50px;
+}
+
+.gallery-header-control-all,
+.gallery-header-control-upload {
+  padding: 0 10px;
+}
+
+.gallery-header-control-text {
+  color: #cccccc;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.gallery-header-control-glyph {
+  display: block;
+  filter: brightness(0) saturate(100%) invert(89%) sepia(0%) saturate(3%) hue-rotate(240deg) brightness(85%) contrast(95%);
+}
+
+.gallery-header-control-glyph-chevron {
+  margin-left: 5px;
+}
+
+.gallery-header-segmented {
+  display: inline-flex;
+  align-items: center;
+}
+
+.gallery-header-segment {
+  width: 50px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #333333;
+  border-left: 0;
+  background-color: #1a1a1a;
+  color: #cccccc;
+  padding: 0;
+  cursor: pointer;
+}
+
+.gallery-header-segment:hover:not(.active) {
+  background-color: #333333;
+}
+
+.gallery-header-segment--left {
+  border-left: 1px solid #333333;
+  border-radius: 10px 0 0 10px;
+}
+
+.gallery-header-segment--right {
+  border-radius: 0 10px 10px 0;
+}
+
+.gallery-header-segment-glyph {
+  display: block;
+  filter: brightness(0) saturate(100%) invert(89%) sepia(0%) saturate(3%) hue-rotate(240deg) brightness(85%) contrast(95%);
+}
+
+.gallery-header-segment.active {
+  border-color: transparent;
+  background-color: #cccccc;
+}
+
+.gallery-header-segment.active .gallery-header-segment-glyph {
+  filter: brightness(0) saturate(100%) invert(9%) sepia(0%) saturate(3399%) hue-rotate(35deg) brightness(95%) contrast(86%);
 }
 
 .tool-instruction {
@@ -770,6 +875,17 @@
   z-index: 30;
 }
 
+.composer--gallery-chat {
+  right: 10px;
+  width: 300px;
+  z-index: 26;
+}
+
+.composer--gallery-chat .composer-input-shell {
+  width: auto;
+  flex: 1;
+}
+
 .render-filmstrip {
   position: fixed;
   left: 0;
@@ -1127,7 +1243,7 @@
 
 .composer-input-shell {
   height: 40px;
-  width: 200px;
+  width: 248px;
   position: relative;
   display: flex;
   align-items: center;
@@ -1268,7 +1384,7 @@
   font-family: inherit;
   font-style: normal;
   font-weight: 400;
-  padding: 0 40px 0 15px;
+  padding: 0 68px 0 15px;
 }
 
 .composer-input::placeholder {
@@ -1340,7 +1456,7 @@
   width: 20px;
   height: 20px;
   position: absolute;
-  right: 10px;
+  right: 35px;
   top: 50%;
   transform: translateY(-50%);
   flex: 0 0 20px;
@@ -1354,10 +1470,28 @@
   cursor: pointer;
 }
 
-.composer-add-glyph {
+.composer-more-inline-button {
   width: 20px;
   height: 20px;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background-color: transparent;
+  color: #cccccc;
+  padding: 0;
+  cursor: pointer;
+}
+
+.composer-add-glyph {
+  width: 14px;
+  height: 14px;
   display: block;
+  filter: brightness(0) saturate(100%) invert(89%) sepia(0%) saturate(3%) hue-rotate(240deg) brightness(85%) contrast(95%);
 }
 
 .composer-render-button {
@@ -1374,6 +1508,23 @@
   font-family: inherit;
   font-weight: 600;
   cursor: default;
+}
+
+.composer-render-button--gallery {
+  width: auto;
+  min-width: 0;
+  padding: 0 15px;
+}
+
+.composer-render-glyph {
+  width: 20px;
+  height: 20px;
+  display: block;
+  filter: brightness(0) saturate(100%) invert(9%) sepia(0%) saturate(3399%) hue-rotate(35deg) brightness(95%) contrast(86%);
+}
+
+.composer-render-button.active .composer-render-glyph {
+  filter: brightness(0) saturate(100%) invert(89%) sepia(0%) saturate(3%) hue-rotate(240deg) brightness(85%) contrast(95%);
 }
 
 .composer-render-button.active {
@@ -1407,6 +1558,124 @@
   box-sizing: border-box;
 }
 
+.view-selection-overlay {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 360px;
+  border-radius: 10px;
+  background-color: rgba(38, 38, 38, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 10px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 10px;
+  z-index: 35;
+}
+
+.view-selection-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.view-selection-tab {
+  height: 30px;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  background: rgba(26, 26, 26, 0.6);
+  color: #cccccc;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.view-selection-tab.active {
+  background: #cccccc;
+  color: #1a1a1a;
+  border-color: transparent;
+}
+
+.view-selection-thumb-button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #cccccc;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+}
+
+.view-selection-thumb-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.view-selection-thumb-label {
+  display: block;
+  padding: 8px 2px 2px;
+  font-size: 12px;
+}
+
+.gallery-view-stage {
+  min-height: 100vh;
+  position: relative;
+  padding: 70px 10px 10px 10px;
+  box-sizing: border-box;
+}
+
+.gallery-grid {
+  width: calc(100% - 320px - 10px);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.gallery-view-thumb-button {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.gallery-view-thumb-button--hidden {
+  opacity: 0;
+}
+
+.gallery-view-thumb-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.gallery-view-color-tile {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gallery-chat-column {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  background-color: #1a1a1a;
+  border-left: 1px solid #333333;
+  box-sizing: border-box;
+  z-index: 25;
+}
+
 .image-frame {
   width: min(calc(100vw - 20px), calc((100vh - 20px) * (2720 / 1536)));
   max-width: calc(100vw - 20px);
@@ -1435,6 +1704,23 @@
   height: auto;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.hero-image--view-transition-hidden {
+  opacity: 0;
+}
+
+.view-transition-image {
+  position: fixed;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  z-index: 50;
+  transition:
+    left 500ms ease,
+    top 500ms ease,
+    width 500ms ease,
+    height 500ms ease;
 }
 
 .hero-image--rendering {
