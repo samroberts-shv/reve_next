@@ -39,6 +39,7 @@ import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
+import fixedCollectionImageSrc from './assets/photos/montblanctrail.jpg'
 import EditView from './views/EditView'
 import GalleryView from './views/GalleryView'
 import TrancheView from './views/TrancheView'
@@ -380,6 +381,10 @@ const renderBlurCycleMs = 3000
 const renderRevealCrossfadeMs = 500
 const renderRevealSharpenMs = 500
 const viewTransitionDurationMs = 500
+const editInsetLeftPx = 10
+const editInsetRightPx = 10
+const editInsetTopPx = 60
+const editInsetBottomPx = 60
 const galleryTileMinSizePx = 200
 const galleryTileMaxSizePx = 300
 const galleryTileGapPx = 10
@@ -397,23 +402,17 @@ const prototypePastWebSearches = [
   'Modern Painting',
 ]
 
-const galleryPlaceholderColors = [
-  '#ef4444',
-  '#f97316',
-  '#f59e0b',
-  '#84cc16',
-  '#22c55e',
-  '#10b981',
-  '#14b8a6',
-  '#06b6d4',
-  '#0ea5e9',
-  '#3b82f6',
-  '#6366f1',
-  '#8b5cf6',
-  '#a855f7',
-  '#d946ef',
-  '#ec4899',
-]
+const galleryPhotoModules = import.meta.glob('./assets/photos/*.png', { eager: true, import: 'default' }) as Record<string, string>
+const galleryPlaceholderImageSrcs = Object.entries(galleryPhotoModules)
+  .sort((firstEntry, secondEntry) => {
+    const firstFilename = firstEntry[0].split('/').pop() ?? ''
+    const secondFilename = secondEntry[0].split('/').pop() ?? ''
+    const firstNumber = Number(firstFilename.replace('.png', ''))
+    const secondNumber = Number(secondFilename.replace('.png', ''))
+    return firstNumber - secondNumber
+  })
+  .map(([, src]) => src)
+  .slice(0, 15)
 
 const sourcePointToPercent = (point: SourcePoint) => ({
   left: `${(point.x / sourceImageSize.width) * 100}%`,
@@ -528,12 +527,15 @@ const getRectStrokePoints = (start: SourcePoint, end: SourcePoint): SourcePoint[
   return [topLeft, topRight, bottomRight, bottomLeft, topLeft]
 }
 
-const getEditImageRect = (): ViewRect => {
-  const width = Math.min(window.innerWidth - 20, (window.innerHeight - 20) * (2720 / 1536))
-  const height = width / (2720 / 1536)
+const getEditImageRect = (aspectRatio: number): ViewRect => {
+  const safeAspectRatio = aspectRatio > 0 ? aspectRatio : sourceImageSize.width / sourceImageSize.height
+  const availableWidth = Math.max(0, window.innerWidth - editInsetLeftPx - editInsetRightPx)
+  const availableHeight = Math.max(0, window.innerHeight - editInsetTopPx - editInsetBottomPx)
+  const width = Math.min(availableWidth, availableHeight * safeAspectRatio)
+  const height = width / safeAspectRatio
   return {
-    left: (window.innerWidth - width) / 2,
-    top: (window.innerHeight - height) / 2,
+    left: editInsetLeftPx + (availableWidth - width) / 2,
+    top: editInsetTopPx + (availableHeight - height) / 2,
     width,
     height,
   }
@@ -585,7 +587,9 @@ function App() {
   const [composerInput, setComposerInput] = useState('')
   const [composerChanges] = useState<string[]>([])
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
+  const [currentImageAspectRatio, setCurrentImageAspectRatio] = useState(sourceImageSize.width / sourceImageSize.height)
   const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
+  const [isCollectionGridReady, setIsCollectionGridReady] = useState(true)
   const [isReveRendering, setIsReveRendering] = useState(false)
   const [reveRenderError, setReveRenderError] = useState<string | null>(null)
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
@@ -1399,16 +1403,24 @@ function App() {
     setActiveObjectPromptName(null)
   }, [currentView])
 
-  const startTransitionGalleryToEdit = (nextImageSrc: string, fromRect: ViewRect) => {
+  const editImageRect = getEditImageRect(currentImageAspectRatio)
+
+  const startTransitionGalleryToEdit = (nextImageSrc: string, fromRect: ViewRect, nextImageAspectRatio?: number) => {
+    const transitionAspectRatio =
+      typeof nextImageAspectRatio === 'number' && nextImageAspectRatio > 0 ? nextImageAspectRatio : currentImageAspectRatio
     const nextTransition: ViewTransition = {
       imageSrc: nextImageSrc,
       fromRect,
-      toRect: getEditImageRect(),
+      toRect: getEditImageRect(transitionAspectRatio),
       animateToTarget: false,
     }
     setViewTransition(nextTransition)
+    if (typeof nextImageAspectRatio === 'number' && nextImageAspectRatio > 0) {
+      setCurrentImageAspectRatio(nextImageAspectRatio)
+    }
     setDisplayImageSrc(nextImageSrc)
     setSourceImageLoaded(false)
+    setIsCollectionGridReady(true)
     setCurrentView('edit')
     if (viewTransitionTimeoutRef.current !== null) {
       window.clearTimeout(viewTransitionTimeoutRef.current)
@@ -1420,22 +1432,29 @@ function App() {
   }
 
   const startTransitionEditToGallery = () => {
+    const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+    const matchedTileIndex = galleryTiles.findIndex((tileSrc) => tileSrc === displayImageSrc)
+    const targetTileIndex = matchedTileIndex >= 0 ? matchedTileIndex : galleryPlaceholderImageSrcs.length
     const nextTransition: ViewTransition = {
       imageSrc: displayImageSrc,
-      fromRect: getEditImageRect(),
-      toRect: getGalleryTileRect(galleryPlaceholderColors.length),
+      fromRect: editImageRect,
+      toRect: getGalleryTileRect(targetTileIndex),
       animateToTarget: false,
     }
     setViewTransition(nextTransition)
+    setIsCollectionGridReady(false)
     setCurrentView('gallery')
     if (viewTransitionTimeoutRef.current !== null) {
       window.clearTimeout(viewTransitionTimeoutRef.current)
     }
     viewTransitionTimeoutRef.current = window.setTimeout(() => {
       setViewTransition(null)
+      setIsCollectionGridReady(true)
       viewTransitionTimeoutRef.current = null
     }, viewTransitionDurationMs)
   }
+
+  const resolveCollectionThumbnailSrc = (src: string) => src
 
   useEffect(() => {
     if (!viewTransition || viewTransition.animateToTarget) {
@@ -2627,6 +2646,7 @@ function App() {
         <div
           ref={imageFrameRef}
           className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
+          style={{ '--image-aspect-ratio': currentImageAspectRatio } as CSSProperties}
           onMouseMove={handleImageMouseMove}
           onMouseLeave={handleImageMouseLeave}
           onClick={handleImageClick}
@@ -2641,7 +2661,13 @@ function App() {
             alt=""
             aria-hidden="true"
             style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
-            onLoad={() => setSourceImageLoaded(true)}
+            onLoad={(event) => {
+              const imageElement = event.currentTarget
+              if (imageElement.naturalWidth > 0 && imageElement.naturalHeight > 0) {
+                setCurrentImageAspectRatio(imageElement.naturalWidth / imageElement.naturalHeight)
+              }
+              setSourceImageLoaded(true)
+            }}
           />
           {hasNoAdjustments(adjustSliderValues) ? (
             <img
@@ -3019,29 +3045,35 @@ function App() {
       </EditView>
       ) : currentView === 'gallery' ? (
         <GalleryView
-          displayImageSrc={displayImageSrc}
-          placeholderColors={galleryPlaceholderColors}
-          onOpenEditView={(imageSrc, tileIndex) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          fixedLastImageSrc={fixedCollectionImageSrc}
+          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
+          showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}
         />
       ) : currentView === 'tranche' ? (
         <TrancheView
-          displayImageSrc={displayImageSrc}
-          placeholderColors={galleryPlaceholderColors}
-          onOpenEditView={(imageSrc, tileIndex) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          fixedLastImageSrc={fixedCollectionImageSrc}
+          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
+          showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}
         />
       ) : (
         <FavoritesView
-          displayImageSrc={displayImageSrc}
-          placeholderColors={galleryPlaceholderColors}
-          onOpenEditView={(imageSrc, tileIndex) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex))
+          fixedLastImageSrc={fixedCollectionImageSrc}
+          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
+            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
+          showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}
         />
       )}
