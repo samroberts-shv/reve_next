@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
 
@@ -9,9 +9,16 @@ type GalleryViewProps = {
   resolveThumbnailSrc: (src: string) => string
   resolveImageName: (src: string, index?: number) => string
   resolveImageDate: (src: string, index?: number) => string
-  onOpenEditView: (imageSrc: string, tileIndex: number, imageAspectRatio?: number) => void
+  onOpenEditView: (
+    imageSrc: string,
+    tileIndex: number,
+    imageAspectRatio?: number,
+    fromRect?: { left: number; top: number; width: number; height: number },
+  ) => void
   showThumbnails: boolean
   isImageHidden?: boolean
+  favoritedImageSrcs: string[]
+  setFavoritedImageSrcs: Dispatch<SetStateAction<string[]>>
 }
 
 const galleryTileMinSizePx = 200
@@ -61,6 +68,8 @@ function GalleryView({
   onOpenEditView,
   showThumbnails,
   isImageHidden = false,
+  favoritedImageSrcs,
+  setFavoritedImageSrcs,
 }: GalleryViewProps) {
   const availableWidth = Math.max(galleryTileMinSizePx, window.innerWidth - galleryChatColumnWidthPx - galleryTileGapPx * 2)
   const minimumColumnsForMaxSize = Math.max(
@@ -137,7 +146,8 @@ function GalleryView({
                   thumbnailImage && thumbnailImage.naturalWidth > 0 && thumbnailImage.naturalHeight > 0
                     ? thumbnailImage.naturalWidth / thumbnailImage.naturalHeight
                     : undefined
-                onOpenEditView(tile.src, index, imageAspectRatio)
+                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                onOpenEditView(tile.src, index, imageAspectRatio, rect)
               }}
             >
               <span
@@ -186,6 +196,18 @@ function GalleryView({
           setOpenMoreMenuIndex(null)
           setMoreMenuAnchorRect(null)
         }}
+        isFavorited={
+          openMoreMenuIndex !== null && favoritedImageSrcs.includes(galleryTiles[openMoreMenuIndex]!.src)
+        }
+        onAction={(action) => {
+          if (openMoreMenuIndex === null) return
+          const imageSrc = galleryTiles[openMoreMenuIndex]!.src
+          if (action === 'Favorite image') {
+            setFavoritedImageSrcs((prev) => (prev.includes(imageSrc) ? prev : [...prev, imageSrc]))
+          } else if (action === 'Unfavorite image') {
+            setFavoritedImageSrcs((prev) => prev.filter((src) => src !== imageSrc))
+          }
+        }}
       />
       <aside className="gallery-chat-column" aria-label="Gallery chat column">
         <div className="collection-chat-scroll collection-chat-scroll--gallery">
@@ -219,7 +241,8 @@ function GalleryView({
                             thumbnailImage && thumbnailImage.naturalWidth > 0 && thumbnailImage.naturalHeight > 0
                               ? thumbnailImage.naturalWidth / thumbnailImage.naturalHeight
                               : undefined
-                          onOpenEditView(thumbnail.src, thumbnail.tileIndex, imageAspectRatio)
+                          const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                          onOpenEditView(thumbnail.src, thumbnail.tileIndex, imageAspectRatio, rect)
                         }}
                       >
                         <img className="collection-chat-thumb-image" src={resolveThumbnailSrc(thumbnail.src)} alt="" aria-hidden="true" />

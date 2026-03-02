@@ -11,11 +11,12 @@ import {
 } from 'react'
 import './App.css'
 import { hasNoAdjustments, normalizeAdjustParams } from './adjustParams'
-import montBlancTrail from './assets/photos/montblanctrail.jpg'
+import montBlancTrail from './assets/photos/jpgs/montblanctrail.jpg'
 import { createAdjustRenderer } from './imageAdjustWebGL'
 import reveLogo from './assets/reve_logo.svg'
 import favOffGlyph from './assets/glyphs/fav_off.svg'
 import shareGlyph from './assets/glyphs/share.svg'
+import downloadGlyph from './assets/glyphs/download.svg'
 import moreGlyph from './assets/glyphs/more.svg'
 import trashGlyph from './assets/glyphs/trash.svg'
 import textGlyph from './assets/glyphs/text.svg'
@@ -39,11 +40,12 @@ import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
-import fixedCollectionImageSrc from './assets/photos/montblanctrail.jpg'
+import fixedCollectionImageSrc from './assets/photos/jpgs/montblanctrail.jpg'
 import EditView from './views/EditView'
 import GalleryView from './views/GalleryView'
 import TrancheView from './views/TrancheView'
 import FavoritesView from './views/FavoritesView'
+import StandardMenu from './components/StandardMenu'
 
 type Tool = 'commentDraw' | 'select' | 'reframe'
 type BottomLeftMenu = 'info' | 'objects' | 'adjust' | 'effects' | 'quickEdit' | null
@@ -447,18 +449,19 @@ const editChatComposerSuggestions = [
   'Add a few hikers on the trail',
 ]
 
-const galleryPhotoModules = import.meta.glob('./assets/photos/*.png', { eager: true, import: 'default' }) as Record<string, string>
+const galleryPhotoModules = import.meta.glob('./assets/photos/jpgs/*.jpg', { eager: true, import: 'default' }) as Record<string, string>
 const galleryThumbnailModules = import.meta.glob('./assets/photos/thumbnails/*.png', {
   eager: true,
   import: 'default',
 }) as Record<string, string>
 
 const galleryPlaceholderImageSrcs = Object.entries(galleryPhotoModules)
+  .filter(([path]) => !path.includes('montblanctrail'))
   .sort((firstEntry, secondEntry) => {
     const firstFilename = firstEntry[0].split('/').pop() ?? ''
     const secondFilename = secondEntry[0].split('/').pop() ?? ''
-    const firstNumber = Number(firstFilename.replace('.png', ''))
-    const secondNumber = Number(secondFilename.replace('.png', ''))
+    const firstNumber = Number(firstFilename.replace('.jpg', ''))
+    const secondNumber = Number(secondFilename.replace('.jpg', ''))
     return firstNumber - secondNumber
   })
   .map(([, src]) => src)
@@ -466,9 +469,10 @@ const galleryPlaceholderImageSrcs = Object.entries(galleryPhotoModules)
 
 const galleryFullToThumbSrc = new Map<string, string>()
 Object.entries(galleryPhotoModules).forEach(([path, fullSrc]) => {
-  if (path.includes('/thumbnails/')) return
+  if (path.includes('montblanctrail')) return
   const filename = path.split('/').pop() ?? ''
-  const thumbPath = `./assets/photos/thumbnails/${filename}`
+  const baseName = filename.replace('.jpg', '')
+  const thumbPath = `./assets/photos/thumbnails/${baseName}.png`
   const thumbSrc = galleryThumbnailModules[thumbPath]
   if (thumbSrc) galleryFullToThumbSrc.set(fullSrc, thumbSrc)
 })
@@ -691,6 +695,9 @@ const getGalleryTileRect = (tileIndex: number): ViewRect => {
 
 function App() {
   const [currentView, setCurrentView] = useState<AppView>('edit')
+  const [previousCollectionView, setPreviousCollectionView] = useState<'gallery' | 'tranche' | 'favorites' | null>(null)
+  const [previousTrancheIndex, setPreviousTrancheIndex] = useState<number | null>(null)
+  const [scrollToTrancheIndex, setScrollToTrancheIndex] = useState<number | null>(null)
   const [selectedTool, setSelectedTool] = useState<Tool>('commentDraw')
   const [toolInstructionFadedOut, setToolInstructionFadedOut] = useState(false)
   const toolInstructionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -778,6 +785,8 @@ function App() {
   const [pendingEditThumbnailSrcById, setPendingEditThumbnailSrcById] = useState<Record<string, string>>({})
   const [adjustSliderDraggingId, setAdjustSliderDraggingId] = useState<string | null>(null)
   const [favoritedImageSrcs, setFavoritedImageSrcs] = useState<string[]>([])
+  const [editHeaderMoreMenuOpen, setEditHeaderMoreMenuOpen] = useState(false)
+  const [editHeaderMoreMenuAnchorRect, setEditHeaderMoreMenuAnchorRect] = useState<DOMRect | null>(null)
   const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
   const adjustContentRef = useRef<HTMLDivElement | null>(null)
 
@@ -1601,13 +1610,18 @@ function App() {
 
   const editImageRect = getEditImageRect(currentImageAspectRatio, currentView === 'edit' && isEditChatOpen)
 
-  const startTransitionGalleryToEdit = (nextImageSrc: string, fromRect: ViewRect, nextImageAspectRatio?: number) => {
+  const startTransitionGalleryToEdit = (
+    nextImageSrc: string,
+    fromRect: ViewRect,
+    nextImageAspectRatio?: number,
+    trancheIndex?: number,
+  ) => {
     const transitionAspectRatio =
       typeof nextImageAspectRatio === 'number' && nextImageAspectRatio > 0 ? nextImageAspectRatio : currentImageAspectRatio
     const nextTransition: ViewTransition = {
       imageSrc: nextImageSrc,
       fromRect,
-      toRect: getEditImageRect(transitionAspectRatio, currentView === 'edit' && isEditChatOpen),
+      toRect: getEditImageRect(transitionAspectRatio, isEditChatOpen),
       animateToTarget: false,
     }
     setViewTransition(nextTransition)
@@ -1617,6 +1631,14 @@ function App() {
     setDisplayImageSrc(nextImageSrc)
     setSourceImageLoaded(false)
     setIsCollectionGridReady(true)
+    if (currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites') {
+      setPreviousCollectionView(currentView)
+      if (currentView === 'tranche' && typeof trancheIndex === 'number' && trancheIndex >= 0) {
+        setPreviousTrancheIndex(trancheIndex)
+      } else {
+        setPreviousTrancheIndex(null)
+      }
+    }
     setCurrentView('edit')
     if (viewTransitionTimeoutRef.current !== null) {
       window.clearTimeout(viewTransitionTimeoutRef.current)
@@ -1627,7 +1649,8 @@ function App() {
     }, viewTransitionDurationMs)
   }
 
-  const startTransitionEditToGallery = () => {
+  const startTransitionEditToCollection = () => {
+    const targetView = previousCollectionView ?? 'gallery'
     const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
     const matchedTileIndex = galleryTiles.findIndex((tileSrc) => tileSrc === displayImageSrc)
     const targetTileIndex = matchedTileIndex >= 0 ? matchedTileIndex : galleryPlaceholderImageSrcs.length
@@ -1639,7 +1662,10 @@ function App() {
     }
     setViewTransition(nextTransition)
     setIsCollectionGridReady(false)
-    setCurrentView('gallery')
+    if (targetView === 'tranche' && previousTrancheIndex !== null) {
+      setScrollToTrancheIndex(previousTrancheIndex)
+    }
+    setCurrentView(targetView)
     if (viewTransitionTimeoutRef.current !== null) {
       window.clearTimeout(viewTransitionTimeoutRef.current)
     }
@@ -1652,17 +1678,33 @@ function App() {
 
   const resolveCollectionThumbnailSrc = (src: string) => galleryFullToThumbSrc.get(src) ?? src
 
-  useEffect(() => {
-    if (!viewTransition || viewTransition.animateToTarget) {
+  useLayoutEffect(() => {
+    if (!viewTransition || viewTransition.animateToTarget || currentView !== 'edit') {
       return
     }
-    const activateTimeout = window.setTimeout(() => {
-      setViewTransition((previous) => (previous ? { ...previous, animateToTarget: true } : previous))
-    }, 20)
-    return () => {
-      window.clearTimeout(activateTimeout)
+    let cancelled = false
+    const runMeasure = () => {
+      if (cancelled) return
+      const frame = imageFrameRef.current
+      if (frame) {
+        frame.offsetHeight
+        const rect = frame.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          setViewTransition((prev) =>
+            prev ? { ...prev, toRect: rect, animateToTarget: true } : prev,
+          )
+          return
+        }
+      }
+      setViewTransition((prev) => (prev ? { ...prev, animateToTarget: true } : prev))
     }
-  }, [viewTransition])
+    requestAnimationFrame(() => {
+      requestAnimationFrame(runMeasure)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [viewTransition, currentView])
 
   useLayoutEffect(() => {
     if (activeBottomLeftMenu !== 'info' || !infoTextareaRef.current) {
@@ -2168,7 +2210,10 @@ function App() {
 
   return (
     <>
-      <div className={`top-overlay-bar${isCollectionView ? ' top-overlay-bar--gallery' : ''}`} aria-hidden="true" />
+      <div
+        className={`top-overlay-bar${isCollectionView ? ' top-overlay-bar--gallery' : ''}${currentView === 'tranche' ? ' top-overlay-bar--tranche' : ''}`}
+        aria-hidden="true"
+      />
       <header className="top-right-meta" aria-label="Project breadcrumb">
         <img className="reve-logo" src={reveLogo} alt="Reve logo" />
         <span className="meta-text light meta-link">My Work</span>
@@ -2178,7 +2223,7 @@ function App() {
           type="button"
           onClick={() => {
             if (currentView === 'edit') {
-              startTransitionEditToGallery()
+              startTransitionEditToCollection()
             }
           }}
         >
@@ -2193,7 +2238,14 @@ function App() {
       </header>
       <nav
         className={`top-right-actions${currentView === 'edit' ? ' top-right-actions--edit' : ''}`}
-        style={{ right: isCollectionView || (currentView === 'edit' && isEditChatOpen) ? '340px' : '10px' }}
+        style={{
+          right:
+            currentView === 'gallery' ||
+            currentView === 'favorites' ||
+            (currentView === 'edit' && isEditChatOpen)
+              ? '340px'
+              : '10px',
+        }}
         aria-label="Page actions"
       >
         {isCollectionView ? (
@@ -2261,12 +2313,47 @@ function App() {
             <button className="glyph-button" type="button" aria-label="Share">
               <img className="glyph-icon" src={shareGlyph} alt="" />
             </button>
-            <button className="glyph-button" type="button" aria-label="More">
+            <button className="glyph-button" type="button" aria-label="Download">
+              <img className="glyph-icon" src={downloadGlyph} alt="" />
+            </button>
+            <button className="glyph-button" type="button" aria-label="Delete">
+              <img className="glyph-icon" src={trashGlyph} alt="" />
+            </button>
+            <button
+              className="glyph-button"
+              type="button"
+              aria-label="More options"
+              aria-haspopup="menu"
+              aria-expanded={editHeaderMoreMenuOpen}
+              onClick={(e) => {
+                if (editHeaderMoreMenuOpen) {
+                  setEditHeaderMoreMenuOpen(false)
+                  setEditHeaderMoreMenuAnchorRect(null)
+                } else {
+                  setEditHeaderMoreMenuOpen(true)
+                  setEditHeaderMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+                }
+              }}
+            >
               <img className="glyph-icon" src={moreGlyph} alt="" />
             </button>
           </>
         )}
       </nav>
+      {currentView === 'edit' && (
+        <StandardMenu
+          isOpen={editHeaderMoreMenuOpen}
+          anchorRect={editHeaderMoreMenuAnchorRect}
+          onClose={() => {
+            setEditHeaderMoreMenuOpen(false)
+            setEditHeaderMoreMenuAnchorRect(null)
+          }}
+          options={[
+            ['Copy image…', 'Add to album', 'Add to reference', 'Flag image'],
+          ]}
+          ariaLabel="Edit options"
+        />
+      )}
       {showBottomUi && (
       <p
         className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}`}
@@ -2594,7 +2681,7 @@ function App() {
       )}
       {showComposer && (
       <nav
-        className={`composer${isCollectionView ? ' composer--gallery-chat' : ''}`}
+        className={`composer${isCollectionView ? ' composer--gallery-chat' : ''}${currentView === 'tranche' ? ' composer--tranche' : ''}`}
         style={{ bottom: `${isCollectionView ? 10 : controlsBottomPx}px` }}
         aria-label="Composer"
       >
@@ -3340,33 +3427,49 @@ function App() {
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
-          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio, fromRect) => {
+            startTransitionGalleryToEdit(imageSrc, fromRect ?? getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
           showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}
+          favoritedImageSrcs={favoritedImageSrcs}
+          setFavoritedImageSrcs={setFavoritedImageSrcs}
         />
       ) : currentView === 'tranche' ? (
         <TrancheView
           fixedLastImageSrc={fixedCollectionImageSrc}
           placeholderImageSrcs={galleryPlaceholderImageSrcs}
-          resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          resolveImageSrc={(src) => src}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
-          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
+          onSuggestionClick={(suggestion) => {
+            setComposerInput(suggestion)
+            setTimeout(() => composerInputRef.current?.focus(), 0)
           }}
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio, fromRect, trancheIndex) => {
+            startTransitionGalleryToEdit(
+              imageSrc,
+              fromRect ?? getGalleryTileRect(tileIndex),
+              imageAspectRatio,
+              trancheIndex,
+            )
+          }}
+          scrollToTrancheIndex={scrollToTrancheIndex}
+          onScrollToTrancheComplete={() => setScrollToTrancheIndex(null)}
           showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}
+          favoritedImageSrcs={favoritedImageSrcs}
+          setFavoritedImageSrcs={setFavoritedImageSrcs}
         />
       ) : (
         <FavoritesView
           favoritedImageSrcs={favoritedImageSrcs}
+          setFavoritedImageSrcs={setFavoritedImageSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
-          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
-            startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
+          onOpenEditView={(imageSrc, tileIndex, imageAspectRatio, fromRect) => {
+            startTransitionGalleryToEdit(imageSrc, fromRect ?? getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
           showThumbnails={isCollectionGridReady}
           isImageHidden={viewTransition !== null}

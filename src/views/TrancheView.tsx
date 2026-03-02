@@ -1,22 +1,31 @@
-import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type Dispatch, type SetStateAction, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
 
 type TrancheViewProps = {
   fixedLastImageSrc: string
   placeholderImageSrcs: string[]
-  resolveThumbnailSrc: (src: string) => string
+  resolveImageSrc: (src: string) => string
   resolveImageName: (src: string, index?: number) => string
   resolveImageDate: (src: string, index?: number) => string
-  onOpenEditView: (imageSrc: string, tileIndex: number, imageAspectRatio?: number) => void
+  onSuggestionClick?: (suggestion: string) => void
+  onOpenEditView: (
+    imageSrc: string,
+    tileIndex: number,
+    imageAspectRatio?: number,
+    fromRect?: { left: number; top: number; width: number; height: number },
+    trancheIndex?: number,
+  ) => void
+  scrollToTrancheIndex?: number | null
+  onScrollToTrancheComplete?: () => void
   showThumbnails: boolean
   isImageHidden?: boolean
+  favoritedImageSrcs: string[]
+  setFavoritedImageSrcs: Dispatch<SetStateAction<string[]>>
 }
 
-const galleryTileMinSizePx = 200
-const galleryTileGapPx = 10
-const galleryChatColumnWidthPx = 320
-const trancheMasonryMinColumnWidthPx = 420
+const trancheTileGapPx = 10
+const trancheMasonryMinColumnWidthPx = 380
 const trancheChatScript = [
   {
     user: 'create a snowy scene in the mountains of mont blanc',
@@ -43,25 +52,87 @@ const trancheChatScript = [
 ]
 const chatTimestamps = ['18 minutes ago', '17 minutes ago', '6 minutes ago', '2 minutes ago', 'Just now']
 
+const trancheSuggestions: string[][] = [
+  ['Add warmer tones to the alpine valley', 'Emphasize the forest path leading to the peak', 'Add morning mist to the mountain vista'],
+  ['Enhance the meadow wildflowers', 'Add golden light to the distant summit', 'Deepen the valley shadows for drama'],
+  ['Add dappled sunlight through the trees', 'Widen the mountain path perspective', 'Add a distant hiker to the scenic overlook'],
+  ['Brighten the wildflower colors', 'Add pine cone details to the ridge', 'Create a sunrise glow at the trail head'],
+  ['Emphasize the snow-capped peaks in the distance', 'Add autumn colors to the valley approach', 'Widen the Mont Blanc trail vista'],
+]
+
 function TrancheView({
   fixedLastImageSrc,
   placeholderImageSrcs,
-  resolveThumbnailSrc,
+  resolveImageSrc,
   resolveImageName,
   resolveImageDate,
+  onSuggestionClick,
   onOpenEditView,
   showThumbnails,
   isImageHidden = false,
+  favoritedImageSrcs,
+  setFavoritedImageSrcs,
+  scrollToTrancheIndex,
+  onScrollToTrancheComplete,
 }: TrancheViewProps) {
   const trancheGroupsRef = useRef<HTMLElement | null>(null)
-  const trancheChatScrollRef = useRef<HTMLDivElement | null>(null)
-  const isSyncingScrollRef = useRef(false)
   const [openMoreMenuIndex, setOpenMoreMenuIndex] = useState<number | null>(null)
   const [moreMenuAnchorRect, setMoreMenuAnchorRect] = useState<DOMRect | null>(null)
-  const availableWidth = Math.max(galleryTileMinSizePx, window.innerWidth - galleryChatColumnWidthPx - galleryTileGapPx * 2)
+  const [visibleTrancheIndex, setVisibleTrancheIndex] = useState(0)
+  const prevVisibleTrancheIndexRef = useRef(0)
+  const [chatTransition, setChatTransition] = useState<{
+    outgoingIndex: number
+    incomingIndex: number
+    direction: 'up' | 'down'
+  } | null>(null)
+
+  useEffect(() => {
+    const container = trancheGroupsRef.current
+    if (!container) return
+    const groups = container.querySelectorAll('.tranche-group')
+    if (groups.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            const index = Array.from(groups).indexOf(entry.target as Element)
+            if (index >= 0) setVisibleTrancheIndex(index)
+          }
+        }
+      },
+      { root: container, threshold: [0.5, 0.75, 1] },
+    )
+    groups.forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+  }, [showThumbnails])
+
+  useEffect(() => {
+    if (visibleTrancheIndex !== prevVisibleTrancheIndexRef.current) {
+      const prevIndex = prevVisibleTrancheIndexRef.current
+      const direction = visibleTrancheIndex > prevIndex ? 'up' : 'down'
+      setChatTransition({ outgoingIndex: prevIndex, incomingIndex: visibleTrancheIndex, direction })
+      prevVisibleTrancheIndexRef.current = visibleTrancheIndex
+      const timeoutId = setTimeout(() => setChatTransition(null), 280)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [visibleTrancheIndex])
+
+  useLayoutEffect(() => {
+    if (!showThumbnails || scrollToTrancheIndex == null) return
+    const container = trancheGroupsRef.current
+    if (!container) return
+    const groups = container.querySelectorAll('.tranche-group')
+    const targetGroup = groups[scrollToTrancheIndex]
+    if (targetGroup) {
+      targetGroup.scrollIntoView({ behavior: 'instant', block: 'start' })
+      onScrollToTrancheComplete?.()
+    }
+  }, [showThumbnails, scrollToTrancheIndex, onScrollToTrancheComplete])
+  const availableWidth = Math.max(trancheMasonryMinColumnWidthPx, window.innerWidth - trancheTileGapPx * 2 - 20)
   const masonryColumnsByWidth = Math.max(
     1,
-    Math.floor((availableWidth + galleryTileGapPx) / (trancheMasonryMinColumnWidthPx + galleryTileGapPx)),
+    Math.floor((availableWidth + trancheTileGapPx) / (trancheMasonryMinColumnWidthPx + trancheTileGapPx)),
   )
 
   const trancheTiles = [
@@ -81,6 +152,10 @@ function TrancheView({
     { start: 11, end: 14 },
     { start: 14, end: 16 },
   ]
+
+  const getTrancheIndexForGlobalIndex = (globalIndex: number) =>
+    trancheRanges.findIndex((r) => globalIndex >= r.start && globalIndex < r.end)
+
   const tranches = trancheRanges
     .map((range) =>
       trancheTiles.slice(range.start, range.end).map((tile, localIndex) => ({
@@ -95,57 +170,46 @@ function TrancheView({
     return Math.max(1, Math.min(masonryColumnsByWidth, preferredColumns))
   }
 
-  useEffect(() => {
-    const groupsElement = trancheGroupsRef.current
-    const chatElement = trancheChatScrollRef.current
-    if (!groupsElement || !chatElement) {
-      return
-    }
-
-    const getScrollProgress = (element: HTMLElement) => {
-      const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
-      if (maxScroll === 0) {
-        return 0
-      }
-      return element.scrollTop / maxScroll
-    }
-
-    const setScrollFromProgress = (element: HTMLElement, progress: number) => {
-      const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
-      element.scrollTop = progress * maxScroll
-    }
-
-    const syncChatScroll = () => {
-      if (isSyncingScrollRef.current) {
-        return
-      }
-      isSyncingScrollRef.current = true
-      setScrollFromProgress(chatElement, getScrollProgress(groupsElement))
-      window.requestAnimationFrame(() => {
-        isSyncingScrollRef.current = false
-      })
-    }
-    const syncGroupScroll = () => {
-      if (isSyncingScrollRef.current) {
-        return
-      }
-      isSyncingScrollRef.current = true
-      setScrollFromProgress(groupsElement, getScrollProgress(chatElement))
-      window.requestAnimationFrame(() => {
-        isSyncingScrollRef.current = false
-      })
-    }
-    syncChatScroll()
-    groupsElement.addEventListener('scroll', syncChatScroll, { passive: true })
-    chatElement.addEventListener('scroll', syncGroupScroll, { passive: true })
-    return () => {
-      groupsElement.removeEventListener('scroll', syncChatScroll)
-      chatElement.removeEventListener('scroll', syncGroupScroll)
-    }
-  }, [])
+  const renderTrancheChatContent = (
+    index: number,
+    suggestionClick?: (s: string) => void,
+    hideSuggestions = false,
+  ) => {
+    const entry = trancheChatScript[index]
+    if (!entry) return null
+    const timestamp = chatTimestamps[index] ?? ''
+    const suggestions = hideSuggestions ? [] : (trancheSuggestions[index] ?? [])
+    return (
+      <>
+        <div className="collection-chat-turn collection-chat-turn--user">
+          <div className="collection-chat-user-block">
+            <p className="collection-chat-timestamp">{timestamp}</p>
+            <p className="collection-chat-bubble">{entry.user}</p>
+          </div>
+        </div>
+        <div className="collection-chat-turn collection-chat-turn--assistant">
+          <p className="collection-chat-response">{entry.reve}</p>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="tranche-chat-suggestions" aria-label="Suggested edits">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                className="tranche-chat-suggestion-link"
+                onClick={() => suggestionClick?.(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
-    <main className="gallery-view-stage">
+    <main className="gallery-view-stage gallery-view-stage--tranche">
       {showThumbnails && (
         <section className="tranche-groups" aria-label="Tranche thumbnails" ref={trancheGroupsRef}>
           {tranches.map((tranche, trancheIndex) => (
@@ -156,10 +220,10 @@ function TrancheView({
                   (() => {
                     const columnCount = getTrancheColumnCount(tranche.length)
                     const rowCount = Math.ceil(tranche.length / columnCount)
-                    const availableTrancheHeightPx = Math.max(120, window.innerHeight - 90)
+                    const availableTrancheHeightPx = Math.max(200, window.innerHeight - 100)
                     const imageMaxHeightPx = Math.max(
-                      80,
-                      (availableTrancheHeightPx - (rowCount - 1) * galleryTileGapPx) / rowCount,
+                      150,
+                      (availableTrancheHeightPx - (rowCount - 1) * trancheTileGapPx) / rowCount,
                     )
                     return {
                       columnCount,
@@ -182,7 +246,9 @@ function TrancheView({
                         thumbnailImage && thumbnailImage.naturalWidth > 0 && thumbnailImage.naturalHeight > 0
                           ? thumbnailImage.naturalWidth / thumbnailImage.naturalHeight
                           : undefined
-                      onOpenEditView(tile.src, tile.globalIndex, imageAspectRatio)
+                      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                      const trancheIdx = getTrancheIndexForGlobalIndex(tile.globalIndex)
+                      onOpenEditView(tile.src, tile.globalIndex, imageAspectRatio, rect, trancheIdx)
                     }}
                   >
                     <span
@@ -208,7 +274,7 @@ function TrancheView({
                     </span>
                     <img
                       className="gallery-view-thumb-image tranche-masonry-image"
-                      src={resolveThumbnailSrc(tile.src)}
+                      src={resolveImageSrc(tile.src)}
                       alt=""
                       aria-hidden="true"
                       loading="lazy"
@@ -234,24 +300,64 @@ function TrancheView({
           setOpenMoreMenuIndex(null)
           setMoreMenuAnchorRect(null)
         }}
+        isFavorited={
+          openMoreMenuIndex !== null && favoritedImageSrcs.includes(trancheTiles[openMoreMenuIndex]!.src)
+        }
+        onAction={(action) => {
+          if (openMoreMenuIndex === null) return
+          const imageSrc = trancheTiles[openMoreMenuIndex]!.src
+          if (action === 'Favorite image') {
+            setFavoritedImageSrcs((prev) => (prev.includes(imageSrc) ? prev : [...prev, imageSrc]))
+          } else if (action === 'Unfavorite image') {
+            setFavoritedImageSrcs((prev) => prev.filter((src) => src !== imageSrc))
+          }
+        }}
       />
-      <aside className="gallery-chat-column" aria-label="Tranche chat column">
-        <div className="collection-chat-scroll collection-chat-scroll--tranche" ref={trancheChatScrollRef}>
-          {trancheChatScript.map((entry, index) => (
-            <section className="collection-chat-entry collection-chat-entry--tranche" key={`tranche-chat-${index}`}>
-              <div className="collection-chat-turn collection-chat-turn--user">
-                <div className="collection-chat-user-block">
-                  <p className="collection-chat-timestamp">{chatTimestamps[index] ?? ''}</p>
-                  <p className="collection-chat-bubble">{entry.user}</p>
-                </div>
+      {chatTransition ? (
+        <>
+          {trancheChatScript[chatTransition.outgoingIndex] && (
+            <div
+              className={`tranche-chat-overlay tranche-chat-overlay--exiting tranche-chat-overlay--exiting-${chatTransition.direction}`}
+              aria-label="Tranche chat"
+              aria-hidden="true"
+            >
+              <div className="tranche-chat-scroll">
+                <section className="tranche-chat-entry">
+                  {renderTrancheChatContent(
+                    chatTransition.outgoingIndex,
+                    onSuggestionClick,
+                    true,
+                  )}
+                </section>
               </div>
-              <div className="collection-chat-turn collection-chat-turn--assistant">
-                <p className="collection-chat-response">{entry.reve}</p>
-              </div>
-            </section>
-          ))}
-        </div>
-      </aside>
+            </div>
+          )}
+          <div
+            className={`tranche-chat-overlay tranche-chat-overlay--entering tranche-chat-overlay--entering-${chatTransition.direction}`}
+            aria-label="Tranche chat"
+          >
+            <div className="tranche-chat-scroll">
+              <section className="tranche-chat-entry">
+                {renderTrancheChatContent(
+                  chatTransition.incomingIndex,
+                  onSuggestionClick,
+                  false,
+                )}
+              </section>
+            </div>
+          </div>
+        </>
+      ) : (
+        trancheChatScript[visibleTrancheIndex] && (
+          <div className="tranche-chat-overlay" aria-label="Tranche chat">
+            <div className="tranche-chat-scroll">
+              <section className="tranche-chat-entry" key={`tranche-chat-${visibleTrancheIndex}`}>
+                {renderTrancheChatContent(visibleTrancheIndex, onSuggestionClick, false)}
+              </section>
+            </div>
+          </div>
+        )
+      )}
     </main>
   )
 }

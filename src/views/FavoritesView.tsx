@@ -1,13 +1,20 @@
 import { useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
 
 type FavoritesViewProps = {
   favoritedImageSrcs: string[]
+  setFavoritedImageSrcs: Dispatch<SetStateAction<string[]>>
   resolveThumbnailSrc: (src: string) => string
   resolveImageName: (src: string, index?: number) => string
   resolveImageDate: (src: string, index?: number) => string
-  onOpenEditView: (imageSrc: string, tileIndex: number, imageAspectRatio?: number) => void
+  onOpenEditView: (
+    imageSrc: string,
+    tileIndex: number,
+    imageAspectRatio?: number,
+    fromRect?: { left: number; top: number; width: number; height: number },
+  ) => void
   showThumbnails: boolean
   isImageHidden?: boolean
 }
@@ -19,6 +26,7 @@ const galleryChatColumnWidthPx = 320
 
 function FavoritesView({
   favoritedImageSrcs,
+  setFavoritedImageSrcs,
   resolveThumbnailSrc,
   resolveImageName,
   resolveImageDate,
@@ -68,7 +76,8 @@ function FavoritesView({
                   thumbnailImage && thumbnailImage.naturalWidth > 0 && thumbnailImage.naturalHeight > 0
                     ? thumbnailImage.naturalWidth / thumbnailImage.naturalHeight
                     : undefined
-                onOpenEditView(tile.src, index, imageAspectRatio)
+                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                onOpenEditView(tile.src, index, imageAspectRatio, rect)
               }}
             >
               <span
@@ -121,6 +130,13 @@ function FavoritesView({
         onClose={() => {
           setOpenMoreMenuIndex(null)
           setMoreMenuAnchorRect(null)
+        }}
+        isFavorited={true}
+        onAction={(action) => {
+          if (action === 'Unfavorite image' && openMoreMenuIndex !== null) {
+            const imageSrc = favoriteTiles[openMoreMenuIndex]!.src
+            setFavoritedImageSrcs((prev) => prev.filter((src) => src !== imageSrc))
+          }
         }}
       />
       <aside className="gallery-chat-column" aria-label="Favorites chat column" />
