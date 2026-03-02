@@ -1,9 +1,13 @@
-import { type CSSProperties, useEffect, useRef } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import moreGlyph from '../assets/glyphs/more.svg'
+import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
 
 type TrancheViewProps = {
   fixedLastImageSrc: string
   placeholderImageSrcs: string[]
   resolveThumbnailSrc: (src: string) => string
+  resolveImageName: (src: string, index?: number) => string
+  resolveImageDate: (src: string, index?: number) => string
   onOpenEditView: (imageSrc: string, tileIndex: number, imageAspectRatio?: number) => void
   showThumbnails: boolean
   isImageHidden?: boolean
@@ -37,11 +41,14 @@ const trancheChatScript = [
     reve: "I'll create two scenic Mont Blanc views with that beautiful contrast of snowy peaks and lush foreground.",
   },
 ]
+const chatTimestamps = ['18 minutes ago', '17 minutes ago', '6 minutes ago', '2 minutes ago', 'Just now']
 
 function TrancheView({
   fixedLastImageSrc,
   placeholderImageSrcs,
   resolveThumbnailSrc,
+  resolveImageName,
+  resolveImageDate,
   onOpenEditView,
   showThumbnails,
   isImageHidden = false,
@@ -49,6 +56,8 @@ function TrancheView({
   const trancheGroupsRef = useRef<HTMLElement | null>(null)
   const trancheChatScrollRef = useRef<HTMLDivElement | null>(null)
   const isSyncingScrollRef = useRef(false)
+  const [openMoreMenuIndex, setOpenMoreMenuIndex] = useState<number | null>(null)
+  const [moreMenuAnchorRect, setMoreMenuAnchorRect] = useState<DOMRect | null>(null)
   const availableWidth = Math.max(galleryTileMinSizePx, window.innerWidth - galleryChatColumnWidthPx - galleryTileGapPx * 2)
   const masonryColumnsByWidth = Math.max(
     1,
@@ -176,6 +185,27 @@ function TrancheView({
                       onOpenEditView(tile.src, tile.globalIndex, imageAspectRatio)
                     }}
                   >
+                    <span
+                      className="gallery-view-thumb-more"
+                      role="button"
+                      tabIndex={0}
+                      aria-label="More options"
+                      aria-haspopup="menu"
+                      aria-expanded={openMoreMenuIndex === tile.globalIndex}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (openMoreMenuIndex === tile.globalIndex) {
+                          setOpenMoreMenuIndex(null)
+                          setMoreMenuAnchorRect(null)
+                        } else {
+                          setOpenMoreMenuIndex(tile.globalIndex)
+                          setMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+                        }
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
+                    >
+                      <img src={moreGlyph} alt="" aria-hidden="true" />
+                    </span>
                     <img
                       className="gallery-view-thumb-image tranche-masonry-image"
                       src={resolveThumbnailSrc(tile.src)}
@@ -184,6 +214,12 @@ function TrancheView({
                       loading="lazy"
                       decoding="async"
                     />
+                    <span className="gallery-view-thumb-caption">
+                      {resolveImageDate(tile.src, tile.globalIndex) && (
+                        <span className="gallery-view-thumb-date">{resolveImageDate(tile.src, tile.globalIndex)}</span>
+                      )}
+                      <span className="gallery-view-thumb-name">{resolveImageName(tile.src, tile.globalIndex)}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -191,12 +227,23 @@ function TrancheView({
           ))}
         </section>
       )}
+      <ThumbnailMoreMenu
+        isOpen={openMoreMenuIndex !== null}
+        anchorRect={moreMenuAnchorRect}
+        onClose={() => {
+          setOpenMoreMenuIndex(null)
+          setMoreMenuAnchorRect(null)
+        }}
+      />
       <aside className="gallery-chat-column" aria-label="Tranche chat column">
         <div className="collection-chat-scroll collection-chat-scroll--tranche" ref={trancheChatScrollRef}>
           {trancheChatScript.map((entry, index) => (
             <section className="collection-chat-entry collection-chat-entry--tranche" key={`tranche-chat-${index}`}>
               <div className="collection-chat-turn collection-chat-turn--user">
-                <p className="collection-chat-bubble">{entry.user}</p>
+                <div className="collection-chat-user-block">
+                  <p className="collection-chat-timestamp">{chatTimestamps[index] ?? ''}</p>
+                  <p className="collection-chat-bubble">{entry.user}</p>
+                </div>
               </div>
               <div className="collection-chat-turn collection-chat-turn--assistant">
                 <p className="collection-chat-response">{entry.reve}</p>

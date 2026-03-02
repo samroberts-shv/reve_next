@@ -77,10 +77,19 @@ type SourcePoint = { x: number; y: number }
 type SourceBounds = { x: number; y: number; width: number; height: number }
 type CommentPanelState = 'expanded' | 'collapsed'
 type SearchThumbnail = { id: string; name: string; src: string }
+type AddMenuOrigin = 'composer' | 'comment' | 'objectPrompt'
+type ReferencePendingEdit = {
+  id: string
+  text: string
+  thumbnailSrc: string
+  mentionToken: string
+  source: AddMenuOrigin
+}
 type PendingEdit = {
   id: string
   text: string
-  annotation: CommentAnnotation
+  annotation?: CommentAnnotation
+  thumbnailSrc?: string
 }
 type RenderRevealTransition = {
   previousImageSrc: string
@@ -385,6 +394,8 @@ const editInsetLeftPx = 10
 const editInsetRightPx = 10
 const editInsetTopPx = 60
 const editInsetBottomPx = 60
+const editChatColumnWidthPx = 320
+const editChatColumnBorderPx = 1
 const galleryTileMinSizePx = 200
 const galleryTileMaxSizePx = 300
 const galleryTileGapPx = 10
@@ -401,8 +412,47 @@ const prototypePastWebSearches = [
   'Santa Cruz Boardwalk',
   'Modern Painting',
 ]
+const prototypeChatEntries = [
+  {
+    timestamp: '18 minutes ago',
+    user: 'create a snowy scene in the mountains of mont blanc',
+    reve: "I'll create four wintertime Mont Blanc mountain scenes for you.",
+  },
+  {
+    timestamp: '17 minutes ago',
+    user: 'remove the animals and make it less snowy',
+    reve: "I'll create four less snowy images without animals.",
+  },
+  {
+    timestamp: '6 minutes ago',
+    user: 'create a trail going through a forest',
+    reve: "I'll create four images of a forest trail for you.",
+  },
+  {
+    timestamp: '2 minutes ago',
+    user:
+      'create a scenic monte blanc view with a path leading away form the camera. snow covered mountains in the distance, but warm green plants and trees nearby. dotted with wild flowers.',
+    reve:
+      "I'll create three scenic Mont Blanc views with that beautiful contrast of snowy peaks and lush foreground.",
+  },
+  {
+    timestamp: 'Just now',
+    user: 'Make the valley more pronounced and make sure snow-capped mountains are visible in the distance',
+    reve: "I'll create two scenic Mont Blanc views with that beautiful contrast of snowy peaks and lush foreground.",
+  },
+]
+const editChatComposerSuggestions = [
+  'Add dramatic golden-hour lighting',
+  'Increase contrast and sharpen foreground details',
+  'Add a few hikers on the trail',
+]
 
 const galleryPhotoModules = import.meta.glob('./assets/photos/*.png', { eager: true, import: 'default' }) as Record<string, string>
+const galleryThumbnailModules = import.meta.glob('./assets/photos/thumbnails/*.png', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>
+
 const galleryPlaceholderImageSrcs = Object.entries(galleryPhotoModules)
   .sort((firstEntry, secondEntry) => {
     const firstFilename = firstEntry[0].split('/').pop() ?? ''
@@ -413,6 +463,70 @@ const galleryPlaceholderImageSrcs = Object.entries(galleryPhotoModules)
   })
   .map(([, src]) => src)
   .slice(0, 15)
+
+const galleryFullToThumbSrc = new Map<string, string>()
+Object.entries(galleryPhotoModules).forEach(([path, fullSrc]) => {
+  if (path.includes('/thumbnails/')) return
+  const filename = path.split('/').pop() ?? ''
+  const thumbPath = `./assets/photos/thumbnails/${filename}`
+  const thumbSrc = galleryThumbnailModules[thumbPath]
+  if (thumbSrc) galleryFullToThumbSrc.set(fullSrc, thumbSrc)
+})
+
+const galleryImageNames = [
+  'Winter Peak',
+  'Alpine Valley',
+  'Forest Path',
+  'Mountain Vista',
+  'Snowy Ridge',
+  'Meadow Trail',
+  'Distant Summit',
+  'Valley View',
+  'Forest Clearing',
+  'Mountain Path',
+  'Scenic Overlook',
+  'Trail Head',
+  'Pine Ridge',
+  'Wildflower Meadow',
+  'Valley Approach',
+  'Mont Blanc Trail',
+]
+
+const galleryImageDates = [
+  'Dec 8, 2024',
+  'Dec 14, 2024',
+  'Dec 21, 2024',
+  'Jan 2, 2025',
+  'Jan 9, 2025',
+  'Jan 15, 2025',
+  'Jan 22, 2025',
+  'Jan 28, 2025',
+  'Feb 3, 2025',
+  'Feb 9, 2025',
+  'Feb 14, 2025',
+  'Feb 18, 2025',
+  'Feb 22, 2025',
+  'Feb 24, 2025',
+  'Feb 27, 2025',
+  'Mar 2, 2025',
+]
+
+const resolveImageName = (src: string, index?: number): string => {
+  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+  const idx = index ?? galleryTiles.indexOf(src)
+  if (idx >= 0 && idx < galleryImageNames.length) return galleryImageNames[idx]
+  if (typeof src === 'string' && (src.includes('montblanc') || src.includes('montblanctrail'))) {
+    return 'Mont Blanc Trail'
+  }
+  return 'Image'
+}
+
+const resolveImageDate = (src: string, index?: number): string => {
+  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+  const idx = index ?? galleryTiles.indexOf(src)
+  if (idx >= 0 && idx < galleryImageDates.length) return galleryImageDates[idx]
+  return ''
+}
 
 const sourcePointToPercent = (point: SourcePoint) => ({
   left: `${(point.x / sourceImageSize.width) * 100}%`,
@@ -527,9 +641,10 @@ const getRectStrokePoints = (start: SourcePoint, end: SourcePoint): SourcePoint[
   return [topLeft, topRight, bottomRight, bottomLeft, topLeft]
 }
 
-const getEditImageRect = (aspectRatio: number): ViewRect => {
+const getEditImageRect = (aspectRatio: number, isChatOpen = false): ViewRect => {
   const safeAspectRatio = aspectRatio > 0 ? aspectRatio : sourceImageSize.width / sourceImageSize.height
-  const availableWidth = Math.max(0, window.innerWidth - editInsetLeftPx - editInsetRightPx)
+  const rightInset = editInsetRightPx + (isChatOpen ? editChatColumnWidthPx + editChatColumnBorderPx : 0)
+  const availableWidth = Math.max(0, window.innerWidth - editInsetLeftPx - rightInset)
   const availableHeight = Math.max(0, window.innerHeight - editInsetTopPx - editInsetBottomPx)
   const width = Math.min(availableWidth, availableHeight * safeAspectRatio)
   const height = width / safeAspectRatio
@@ -622,12 +737,15 @@ function App() {
   const [draftCommentBoxEnd, setDraftCommentBoxEnd] = useState<SourcePoint | null>(null)
   const [commentPanelPosition, setCommentPanelPosition] = useState({ left: 10, top: 10 })
   const [isComposerAddMenuOpen, setIsComposerAddMenuOpen] = useState(false)
+  const [isEditChatOpen, setIsEditChatOpen] = useState(false)
+  const [addMenuOrigin, setAddMenuOrigin] = useState<AddMenuOrigin>('composer')
   const [addMenuPosition, setAddMenuPosition] = useState({ left: 10, top: 10 })
   const [isPendingEditsMenuOpen, setIsPendingEditsMenuOpen] = useState(false)
   const [isAddMenuReferenceBrowserOpen, setIsAddMenuReferenceBrowserOpen] = useState(false)
   const [addMenuSourceTab, setAddMenuSourceTab] = useState<'references' | 'webSearch'>('references')
   const [addMenuSearchQuery, setAddMenuSearchQuery] = useState('')
   const [webSearchResults, setWebSearchResults] = useState<SearchThumbnail[]>([])
+  const [referencePendingEdits, setReferencePendingEdits] = useState<ReferencePendingEdit[]>([])
   const [isWebSearchLoading, setIsWebSearchLoading] = useState(false)
   const [webSearchError, setWebSearchError] = useState<string | null>(null)
   const [hasWebSearchPerformed, setHasWebSearchPerformed] = useState(false)
@@ -640,6 +758,7 @@ function App() {
   const objectPromptCloseTimeoutRef = useRef<number | null>(null)
   const commentPanelRef = useRef<HTMLDivElement | null>(null)
   const addMenuRef = useRef<HTMLElement | null>(null)
+  const composerInputRef = useRef<HTMLInputElement | null>(null)
   const pendingEditsMenuRef = useRef<HTMLElement | null>(null)
   const commentLayerRef = useRef<HTMLDivElement | null>(null)
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -658,10 +777,15 @@ function App() {
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
   const [pendingEditThumbnailSrcById, setPendingEditThumbnailSrcById] = useState<Record<string, string>>({})
   const [adjustSliderDraggingId, setAdjustSliderDraggingId] = useState<string | null>(null)
+  const [favoritedImageSrcs, setFavoritedImageSrcs] = useState<string[]>([])
   const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
   const adjustContentRef = useRef<HTMLDivElement | null>(null)
 
-  const hasComposerChanges = composerInput.trim().length > 0 || composerChanges.length > 0 || commentAnnotations.length > 0
+  const hasComposerChanges =
+    composerInput.trim().length > 0 ||
+    composerChanges.length > 0 ||
+    commentAnnotations.length > 0 ||
+    referencePendingEdits.length > 0
   const canRender = hasComposerChanges && !isReveRendering
   const hasRenderHistory = renderHistory.length > 0
   const isCollectionView = currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites'
@@ -678,15 +802,34 @@ function App() {
           : 'Favorites View'
   const topInstructionText = currentView === 'edit' ? TOOL_INSTRUCTIONS[selectedTool] : currentViewLabel
   const pendingEdits: PendingEdit[] = useMemo(
-    () =>
-      commentAnnotations
-        .map((comment) => ({
-          id: comment.id,
-          text: comment.text.trim(),
-          annotation: comment,
+    () => {
+      const commentPendingEdits = commentAnnotations
+        .map((comment) => {
+          const trimmedText = comment.text.trim()
+          const hasStroke = comment.kind === 'stroke' && comment.strokePoints.length > 0
+          return {
+            id: comment.id,
+            text: trimmedText.length > 0 ? trimmedText : hasStroke ? 'Stroke edit' : '',
+            annotation: comment,
+            hasStroke,
+          }
+        })
+        .filter((pendingEdit) => pendingEdit.text.length > 0 || pendingEdit.hasStroke)
+        .map(({ id, text, annotation }) => ({
+          id,
+          text,
+          annotation,
         }))
-        .filter((pendingEdit) => pendingEdit.text.length > 0),
-    [commentAnnotations],
+
+      const referencedPendingEditsMapped = referencePendingEdits.map((pendingEdit) => ({
+        id: pendingEdit.id,
+        text: pendingEdit.text,
+        thumbnailSrc: pendingEdit.thumbnailSrc,
+      }))
+
+      return [...commentPendingEdits, ...referencedPendingEditsMapped]
+    },
+    [commentAnnotations, referencePendingEdits],
   )
   const pendingEditCount = pendingEdits.length
   const isInteractionMenuOpen =
@@ -876,6 +1019,18 @@ function App() {
     setActiveCommentId((previous) => (previous === commentId ? null : previous))
   }
 
+  const handleDeletePendingEdit = (pendingEditId: string) => {
+    if (pendingEditId.startsWith('reference-')) {
+      const toDelete = referencePendingEdits.find((pendingEdit) => pendingEdit.id === pendingEditId)
+      if (toDelete?.source === 'composer' && toDelete.mentionToken) {
+        setComposerInput((previous) => previous.replace(toDelete.mentionToken, ''))
+      }
+      setReferencePendingEdits((previous) => previous.filter((pendingEdit) => pendingEdit.id !== pendingEditId))
+      return
+    }
+    handleDeleteComment(pendingEditId)
+  }
+
   const handleCommentInputKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || !activeComment) {
       return
@@ -899,6 +1054,8 @@ function App() {
 
   const handleAddMenuTriggerClick = (event: MouseEvent<HTMLButtonElement>) => {
     const triggerBounds = event.currentTarget.getBoundingClientRect()
+    const triggerOrigin = (event.currentTarget.dataset.addMenuOrigin as AddMenuOrigin | undefined) ?? 'composer'
+    setAddMenuOrigin(triggerOrigin)
     setAddMenuPosition(getAddMenuPosition(triggerBounds))
     setIsAddMenuReferenceBrowserOpen(false)
     setAddMenuSourceTab('references')
@@ -912,6 +1069,44 @@ function App() {
   const handleOpenAddMenuSourceBrowser = (source: 'references' | 'webSearch') => {
     setAddMenuSourceTab(source)
     setIsAddMenuReferenceBrowserOpen(true)
+  }
+
+  const handleAddReferencedPendingEdit = (thumbnailSrc: string, imageName: string) => {
+    const normalizedMention = imageName.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const mentionToken = normalizedMention.length > 0 ? `@${normalizedMention} ` : '@reference '
+
+    setIsComposerAddMenuOpen(false)
+
+    if (addMenuOrigin === 'comment' && activeCommentId) {
+      setCommentAnnotations((previous) =>
+        previous.map((comment) => (comment.id === activeCommentId ? { ...comment, text: `${comment.text}${mentionToken}` } : comment)),
+      )
+    } else if (addMenuOrigin === 'objectPrompt' && displayedObjectPromptName) {
+      setObjectPromptTexts((previous) => ({
+        ...previous,
+        [displayedObjectPromptName]: `${previous[displayedObjectPromptName] ?? ''}${mentionToken}`,
+      }))
+    } else {
+      setComposerInput((previous) => {
+        const next = `${previous}${mentionToken}`
+        setTimeout(() => {
+          composerInputRef.current?.focus()
+          composerInputRef.current?.setSelectionRange(next.length, next.length)
+        }, 0)
+        return next
+      })
+    }
+
+    setReferencePendingEdits((previous) => [
+      ...previous,
+      {
+        id: `reference-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text: 'Referenced',
+        thumbnailSrc,
+        mentionToken,
+        source: addMenuOrigin,
+      },
+    ])
   }
 
   const handleRunPexelsWebSearch = async (queryOverride?: string) => {
@@ -1028,6 +1223,7 @@ function App() {
     setRenderRevealTransition(null)
     // Clear comment annotations immediately when rendering starts.
     setCommentAnnotations([])
+    setReferencePendingEdits([])
     setIsPendingEditsMenuOpen(false)
     setActiveCommentId(null)
     setIsDrawingCommentStroke(false)
@@ -1403,7 +1599,7 @@ function App() {
     setActiveObjectPromptName(null)
   }, [currentView])
 
-  const editImageRect = getEditImageRect(currentImageAspectRatio)
+  const editImageRect = getEditImageRect(currentImageAspectRatio, currentView === 'edit' && isEditChatOpen)
 
   const startTransitionGalleryToEdit = (nextImageSrc: string, fromRect: ViewRect, nextImageAspectRatio?: number) => {
     const transitionAspectRatio =
@@ -1411,7 +1607,7 @@ function App() {
     const nextTransition: ViewTransition = {
       imageSrc: nextImageSrc,
       fromRect,
-      toRect: getEditImageRect(transitionAspectRatio),
+      toRect: getEditImageRect(transitionAspectRatio, currentView === 'edit' && isEditChatOpen),
       animateToTarget: false,
     }
     setViewTransition(nextTransition)
@@ -1454,7 +1650,7 @@ function App() {
     }, viewTransitionDurationMs)
   }
 
-  const resolveCollectionThumbnailSrc = (src: string) => src
+  const resolveCollectionThumbnailSrc = (src: string) => galleryFullToThumbSrc.get(src) ?? src
 
   useEffect(() => {
     if (!viewTransition || viewTransition.animateToTarget) {
@@ -1719,7 +1915,14 @@ function App() {
     const thumbnailMap: Record<string, string> = {}
 
     pendingEdits.forEach((pendingEdit) => {
+      if (pendingEdit.thumbnailSrc) {
+        thumbnailMap[pendingEdit.id] = pendingEdit.thumbnailSrc
+        return
+      }
       const { annotation } = pendingEdit
+      if (!annotation) {
+        return
+      }
       const anchorPoint = getCommentAnchorPoint(annotation)
       const halfSize = pendingEditThumbnailSize / 2
       const cropX = Math.round(Math.max(0, Math.min(sourceImageSize.width - pendingEditThumbnailSize, anchorPoint.x - halfSize)))
@@ -1990,7 +2193,7 @@ function App() {
       </header>
       <nav
         className={`top-right-actions${currentView === 'edit' ? ' top-right-actions--edit' : ''}`}
-        style={{ right: isCollectionView ? '340px' : '10px' }}
+        style={{ right: isCollectionView || (currentView === 'edit' && isEditChatOpen) ? '340px' : '10px' }}
         aria-label="Page actions"
       >
         {isCollectionView ? (
@@ -2037,8 +2240,23 @@ function App() {
           </>
         ) : (
           <>
-            <button className="glyph-button" type="button" aria-label="Favorite">
-              <img className="glyph-icon" src={favOffGlyph} alt="" />
+            <button
+              className="glyph-button"
+              type="button"
+              aria-label={favoritedImageSrcs.includes(displayImageSrc) ? 'Remove from favorites' : 'Add to favorites'}
+              onClick={() => {
+                setFavoritedImageSrcs((previous) =>
+                  previous.includes(displayImageSrc)
+                    ? previous.filter((src) => src !== displayImageSrc)
+                    : [...previous, displayImageSrc],
+                )
+              }}
+            >
+              <img
+                className="glyph-icon"
+                src={favoritedImageSrcs.includes(displayImageSrc) ? favOnGlyph : favOffGlyph}
+                alt=""
+              />
             </button>
             <button className="glyph-button" type="button" aria-label="Share">
               <img className="glyph-icon" src={shareGlyph} alt="" />
@@ -2397,7 +2615,13 @@ function App() {
                   <p className="composer-add-recents-title">RECENT</p>
                   <div className="composer-add-recents" aria-label="Recent references">
                     {recentReferenceThumbnails.map((thumbnail) => (
-                      <button key={thumbnail.name} className="composer-add-recent-button" type="button" aria-label={thumbnail.name}>
+                      <button
+                        key={thumbnail.name}
+                        className="composer-add-recent-button"
+                        type="button"
+                        aria-label={thumbnail.name}
+                        onClick={() => handleAddReferencedPendingEdit(thumbnail.src, thumbnail.name)}
+                      >
                         <img className="composer-add-recent-image" src={thumbnail.src} alt={thumbnail.name} />
                       </button>
                     ))}
@@ -2474,7 +2698,13 @@ function App() {
                 {addMenuSourceTab === 'references' ? (
                   <div className="composer-source-grid" aria-label="Reference thumbnails">
                     {filteredReferenceThumbnails.map((thumbnail) => (
-                      <button key={`source-${thumbnail.name}`} className="composer-source-grid-item" type="button" aria-label={thumbnail.name}>
+                      <button
+                        key={`source-${thumbnail.name}`}
+                        className="composer-source-grid-item"
+                        type="button"
+                        aria-label={thumbnail.name}
+                        onClick={() => handleAddReferencedPendingEdit(thumbnail.src, thumbnail.name)}
+                      >
                         <img className="composer-source-grid-image" src={thumbnail.src} alt={thumbnail.name} />
                         <span className="composer-source-grid-name">{thumbnail.name}</span>
                       </button>
@@ -2506,7 +2736,13 @@ function App() {
                     {!isWebSearchLoading && !webSearchError && webSearchResults.length > 0 && (
                       <div className="composer-source-grid" aria-label="Web search thumbnails">
                         {webSearchResults.map((thumbnail) => (
-                          <button key={`web-${thumbnail.id}`} className="composer-source-grid-item" type="button" aria-label={thumbnail.name}>
+                          <button
+                            key={`web-${thumbnail.id}`}
+                            className="composer-source-grid-item"
+                            type="button"
+                            aria-label={thumbnail.name}
+                            onClick={() => handleAddReferencedPendingEdit(thumbnail.src, thumbnail.name)}
+                          >
                             <img className="composer-source-grid-image" src={thumbnail.src} alt={thumbnail.name} />
                             <span className="composer-source-grid-name">{thumbnail.name}</span>
                           </button>
@@ -2520,56 +2756,68 @@ function App() {
             </div>
           </section>
         )}
-        <div className={`composer-input-shell${pendingEditCount > 0 ? ' composer-input-shell--has-pending-pill' : ''}`}>
-          {pendingEditCount > 0 && (
-            <>
-              <button
-                className="composer-pending-pill"
-                data-pending-edits-trigger="true"
-                type="button"
-                aria-label={`${pendingEditCount} pending edits`}
-                onClick={() => setIsPendingEditsMenuOpen((previous) => !previous)}
-              >
-                {pendingEditCount} Pending Edit{pendingEditCount === 1 ? '' : 's'}
-              </button>
-              {isPendingEditsMenuOpen && (
-                <section ref={pendingEditsMenuRef} className="composer-pending-menu" aria-label="Pending edits">
-                  {pendingEdits.map((pendingEdit) => (
-                    <div key={pendingEdit.id} className="composer-pending-item">
-                      {pendingEditThumbnailSrcById[pendingEdit.id] ? (
-                        <img
-                          className="composer-pending-thumbnail"
-                          src={pendingEditThumbnailSrcById[pendingEdit.id]}
-                          alt=""
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <div className="composer-pending-thumbnail composer-pending-thumbnail--placeholder" aria-hidden="true" />
-                      )}
-                      <span className="composer-pending-item-text">{pendingEdit.text}</span>
-                      <button
-                        className="composer-pending-trash-wrap"
-                        type="button"
-                        aria-label={`Delete pending edit: ${pendingEdit.text}`}
-                        onClick={() => handleDeleteComment(pendingEdit.id)}
-                      >
-                        <img className="composer-pending-trash" src={trashGlyph} alt="" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </section>
-              )}
-            </>
+        {pendingEditCount > 0 && (
+          <div className="composer-pending-row">
+            <button
+              className="composer-pending-pill"
+              data-pending-edits-trigger="true"
+              type="button"
+              aria-label={`${pendingEditCount} pending edits`}
+              onClick={() => setIsPendingEditsMenuOpen((previous) => !previous)}
+            >
+              {pendingEditCount} Pending Edit{pendingEditCount === 1 ? '' : 's'}
+            </button>
+            {isPendingEditsMenuOpen && (
+              <section ref={pendingEditsMenuRef} className="composer-pending-menu" aria-label="Pending edits">
+                {pendingEdits.map((pendingEdit) => (
+                  <div key={pendingEdit.id} className="composer-pending-item">
+                    {pendingEditThumbnailSrcById[pendingEdit.id] ? (
+                      <img
+                        className="composer-pending-thumbnail"
+                        src={pendingEditThumbnailSrcById[pendingEdit.id]}
+                        alt=""
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <div className="composer-pending-thumbnail composer-pending-thumbnail--placeholder" aria-hidden="true" />
+                    )}
+                    <span className="composer-pending-item-text">{pendingEdit.text}</span>
+                    <button
+                      className="composer-pending-trash-wrap"
+                      type="button"
+                      aria-label={`Delete pending edit: ${pendingEdit.text}`}
+                      onClick={() => handleDeletePendingEdit(pendingEdit.id)}
+                    >
+                      <img className="composer-pending-trash" src={trashGlyph} alt="" aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        )}
+        <div className="composer-main-row">
+          <div className="composer-input-shell">
+            {currentView === 'edit' && !isEditChatOpen && (
+            <button
+              className="composer-chevron-button"
+              type="button"
+              aria-label="Show chat"
+              onClick={() => setIsEditChatOpen(true)}
+            >
+              <svg className="composer-chevron-up-glyph" viewBox="0 0 9 5" aria-hidden="true">
+                <path
+                  d="M0.166016 4.00391L3.88184 0.200195C4.00879 0.0667318 4.1569 0 4.32617 0C4.41081 0.00325521 4.49056 0.0227865 4.56543 0.0585938C4.6403 0.0911458 4.70866 0.138346 4.77051 0.200195L8.48633 4.00391C8.59701 4.11133 8.65234 4.24479 8.65234 4.4043C8.65234 4.51172 8.6263 4.60775 8.57422 4.69238C8.52539 4.77702 8.45866 4.84538 8.37402 4.89746C8.28939 4.94954 8.19336 4.97559 8.08594 4.97559C7.92318 4.97559 7.78646 4.91699 7.67578 4.7998L4.0918 1.12793H4.56543L0.976562 4.7998C0.869141 4.91699 0.732422 4.97559 0.566406 4.97559C0.458984 4.97559 0.362956 4.94954 0.27832 4.89746C0.193685 4.84538 0.125326 4.77702 0.0732422 4.69238C0.0244141 4.60775 0 4.51172 0 4.4043C0 4.32617 0.0130208 4.25293 0.0390625 4.18457C0.0683594 4.11621 0.110677 4.05599 0.166016 4.00391Z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span className="composer-chevron-label" aria-hidden="true">
+                Show Chat
+              </span>
+            </button>
           )}
-          <button className="composer-chevron-button" type="button" aria-label="Collapse composer">
-            <svg className="composer-chevron-up-glyph" viewBox="0 0 9 5" aria-hidden="true">
-              <path
-                d="M0.166016 4.00391L3.88184 0.200195C4.00879 0.0667318 4.1569 0 4.32617 0C4.41081 0.00325521 4.49056 0.0227865 4.56543 0.0585938C4.6403 0.0911458 4.70866 0.138346 4.77051 0.200195L8.48633 4.00391C8.59701 4.11133 8.65234 4.24479 8.65234 4.4043C8.65234 4.51172 8.6263 4.60775 8.57422 4.69238C8.52539 4.77702 8.45866 4.84538 8.37402 4.89746C8.28939 4.94954 8.19336 4.97559 8.08594 4.97559C7.92318 4.97559 7.78646 4.91699 7.67578 4.7998L4.0918 1.12793H4.56543L0.976562 4.7998C0.869141 4.91699 0.732422 4.97559 0.566406 4.97559C0.458984 4.97559 0.362956 4.94954 0.27832 4.89746C0.193685 4.84538 0.125326 4.77702 0.0732422 4.69238C0.0244141 4.60775 0 4.51172 0 4.4043C0 4.32617 0.0130208 4.25293 0.0390625 4.18457C0.0683594 4.11621 0.110677 4.05599 0.166016 4.00391Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
           <input
+            ref={composerInputRef}
             className={`composer-input${isReveRendering ? ' composer-input--rendering' : ''}`}
             type="text"
             value={isReveRendering ? '' : composerInput}
@@ -2589,6 +2837,7 @@ function App() {
           <button
             className="composer-add-button"
             data-add-menu-trigger="true"
+            data-add-menu-origin="composer"
             type="button"
             aria-label="Add change"
             onClick={handleAddMenuTriggerClick}
@@ -2598,9 +2847,9 @@ function App() {
           <button className="composer-more-inline-button" type="button" aria-label="More options">
             <img className="composer-add-glyph" src={moreGlyph} alt="" aria-hidden="true" />
           </button>
-        </div>
-        <button
-          className={`composer-render-button${canRender ? ' active' : ''}${isCollectionView ? ' composer-render-button--gallery' : ''}`}
+          </div>
+          <button
+            className={`composer-render-button${canRender ? ' active' : ''}${isCollectionView ? ' composer-render-button--gallery' : ''}`}
           type="button"
           aria-label="Render"
           disabled={!canRender}
@@ -2613,8 +2862,53 @@ function App() {
           ) : (
             'Render'
           )}
-        </button>
+          </button>
+        </div>
       </nav>
+      )}
+      {currentView === 'edit' && isEditChatOpen && (
+        <aside className="gallery-chat-column edit-chat-column" aria-label="Edit chat column">
+          <button
+            className="edit-chat-hide-button"
+            type="button"
+            aria-label="Hide chat"
+            onClick={() => setIsEditChatOpen(false)}
+          >
+            <img className="edit-chat-hide-glyph" src={chevronDownGlyph} alt="" aria-hidden="true" />
+            <span className="edit-chat-hide-label" aria-hidden="true">
+              Hide Chat
+            </span>
+          </button>
+          <div className="collection-chat-scroll collection-chat-scroll--gallery collection-chat-scroll--edit">
+            {prototypeChatEntries.map((entry, index) => (
+              <section className="collection-chat-entry" key={`edit-chat-${index}`}>
+                <div className="collection-chat-turn collection-chat-turn--user">
+                  <div className="collection-chat-user-block">
+                    <p className="collection-chat-timestamp">{entry.timestamp}</p>
+                    <p className="collection-chat-bubble">{entry.user}</p>
+                  </div>
+                </div>
+                <div className="collection-chat-turn collection-chat-turn--assistant">
+                  <p className="collection-chat-response">{entry.reve}</p>
+                </div>
+              </section>
+            ))}
+          </div>
+        </aside>
+      )}
+      {currentView === 'edit' && isEditChatOpen && showComposer && (
+        <section className="composer-suggestions" style={{ bottom: `${controlsBottomPx + 64}px` }} aria-label="Suggested edits">
+          {editChatComposerSuggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              className="composer-suggestion-link"
+              type="button"
+              onClick={() => setComposerInput(suggestion)}
+            >
+              {suggestion}
+            </button>
+          ))}
+        </section>
       )}
       {showBottomUi && hasRenderHistory && (
         <section
@@ -2642,7 +2936,7 @@ function App() {
       )}
       {showBottomUi && reveRenderError && <p className="composer-render-error">{reveRenderError}</p>}
       {currentView === 'edit' ? (
-      <EditView>
+      <EditView isChatOpen={isEditChatOpen}>
         <div
           ref={imageFrameRef}
           className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
@@ -2958,17 +3252,12 @@ function App() {
                 <button
                   className="object-prompt-glyph-button"
                   data-add-menu-trigger="true"
+                  data-add-menu-origin="comment"
                   type="button"
                   aria-label="Add comment"
                   onClick={handleAddMenuTriggerClick}
                 >
-                  <svg className="object-prompt-glyph" viewBox="0 0 20 20" aria-hidden="true">
-                    <rect x="0.5" y="0.5" width="19" height="19" rx="9.5" fill="none" stroke="currentColor" />
-                    <path
-                      d="M10.3555 14.082C10.3555 14.2227 10.3027 14.3438 10.1973 14.4453C10.0957 14.5508 9.97266 14.6035 9.82812 14.6035C9.68359 14.6035 9.56055 14.5508 9.45898 14.4453C9.35742 14.3438 9.30664 14.2227 9.30664 14.082V5.45703C9.30664 5.31641 9.35742 5.19531 9.45898 5.09375C9.56055 4.98828 9.68359 4.93555 9.82812 4.93555C9.97266 4.93555 10.0957 4.98828 10.1973 5.09375C10.3027 5.19531 10.3555 5.31641 10.3555 5.45703V14.082ZM5.51562 10.291C5.375 10.291 5.25195 10.2402 5.14648 10.1387C5.04492 10.0371 4.99414 9.91406 4.99414 9.76953C4.99414 9.625 5.04492 9.50195 5.14648 9.40039C5.25195 9.29492 5.375 9.24219 5.51562 9.24219H14.1406C14.2812 9.24219 14.4023 9.29492 14.5039 9.40039C14.6094 9.50195 14.6621 9.625 14.6621 9.76953C14.6621 9.91406 14.6094 10.0371 14.5039 10.1387C14.4023 10.2402 14.2812 10.291 14.1406 10.291H5.51562Z"
-                      fill="currentColor"
-                    />
-                  </svg>
+                  <img className="object-prompt-glyph" src={addGlyph} alt="" aria-hidden="true" />
                 </button>
                 <button
                   className="object-prompt-glyph-button"
@@ -3006,6 +3295,7 @@ function App() {
                 <button
                   className="object-prompt-glyph-button"
                   data-add-menu-trigger="true"
+                  data-add-menu-origin="objectPrompt"
                   type="button"
                   aria-label="Add object prompt"
                   onClick={handleAddMenuTriggerClick}
@@ -3048,6 +3338,8 @@ function App() {
           fixedLastImageSrc={fixedCollectionImageSrc}
           placeholderImageSrcs={galleryPlaceholderImageSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          resolveImageName={resolveImageName}
+          resolveImageDate={resolveImageDate}
           onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
             startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
@@ -3059,6 +3351,8 @@ function App() {
           fixedLastImageSrc={fixedCollectionImageSrc}
           placeholderImageSrcs={galleryPlaceholderImageSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          resolveImageName={resolveImageName}
+          resolveImageDate={resolveImageDate}
           onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
             startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}
@@ -3067,9 +3361,10 @@ function App() {
         />
       ) : (
         <FavoritesView
-          fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          favoritedImageSrcs={favoritedImageSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
+          resolveImageName={resolveImageName}
+          resolveImageDate={resolveImageDate}
           onOpenEditView={(imageSrc, tileIndex, imageAspectRatio) => {
             startTransitionGalleryToEdit(imageSrc, getGalleryTileRect(tileIndex), imageAspectRatio)
           }}

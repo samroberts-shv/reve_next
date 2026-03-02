@@ -1,7 +1,12 @@
+import { useState } from 'react'
+import moreGlyph from '../assets/glyphs/more.svg'
+import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
+
 type FavoritesViewProps = {
-  fixedLastImageSrc: string
-  placeholderImageSrcs: string[]
+  favoritedImageSrcs: string[]
   resolveThumbnailSrc: (src: string) => string
+  resolveImageName: (src: string, index?: number) => string
+  resolveImageDate: (src: string, index?: number) => string
   onOpenEditView: (imageSrc: string, tileIndex: number, imageAspectRatio?: number) => void
   showThumbnails: boolean
   isImageHidden?: boolean
@@ -13,9 +18,10 @@ const galleryTileGapPx = 10
 const galleryChatColumnWidthPx = 320
 
 function FavoritesView({
-  fixedLastImageSrc,
-  placeholderImageSrcs,
+  favoritedImageSrcs,
   resolveThumbnailSrc,
+  resolveImageName,
+  resolveImageDate,
   onOpenEditView,
   showThumbnails,
   isImageHidden = false,
@@ -35,20 +41,16 @@ function FavoritesView({
     Math.max(galleryTileMinSizePx, (availableWidth - (gridColumns - 1) * galleryTileGapPx) / gridColumns),
   )
 
-  const favoriteTiles = [
-    ...placeholderImageSrcs.map((src) => ({
-      kind: 'image' as const,
-      src,
-    })),
-    {
-      kind: 'image' as const,
-      src: fixedLastImageSrc,
-    },
-  ]
+  const favoriteTiles = favoritedImageSrcs.map((src) => ({
+    kind: 'image' as const,
+    src,
+  }))
+  const [openMoreMenuIndex, setOpenMoreMenuIndex] = useState<number | null>(null)
+  const [moreMenuAnchorRect, setMoreMenuAnchorRect] = useState<DOMRect | null>(null)
 
   return (
     <main className="gallery-view-stage">
-      {showThumbnails && (
+      {showThumbnails && favoriteTiles.length > 0 && (
         <section
           className="gallery-grid"
           style={{ gridTemplateColumns: `repeat(${gridColumns}, ${tileSize}px)` }}
@@ -69,6 +71,27 @@ function FavoritesView({
                 onOpenEditView(tile.src, index, imageAspectRatio)
               }}
             >
+              <span
+                className="gallery-view-thumb-more"
+                role="button"
+                tabIndex={0}
+                aria-label="More options"
+                aria-haspopup="menu"
+                aria-expanded={openMoreMenuIndex === index}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (openMoreMenuIndex === index) {
+                    setOpenMoreMenuIndex(null)
+                    setMoreMenuAnchorRect(null)
+                  } else {
+                    setOpenMoreMenuIndex(index)
+                    setMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+                  }
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
+              >
+                <img src={moreGlyph} alt="" aria-hidden="true" />
+              </span>
               <img
                 className="gallery-view-thumb-image"
                 src={resolveThumbnailSrc(tile.src)}
@@ -77,10 +100,29 @@ function FavoritesView({
                 loading="lazy"
                 decoding="async"
               />
+              <span className="gallery-view-thumb-caption">
+                {resolveImageDate(tile.src, index) && (
+                  <span className="gallery-view-thumb-date">{resolveImageDate(tile.src, index)}</span>
+                )}
+                <span className="gallery-view-thumb-name">{resolveImageName(tile.src, index)}</span>
+              </span>
             </button>
           ))}
         </section>
       )}
+      {showThumbnails && favoriteTiles.length === 0 && (
+        <p className="favorites-empty-message" aria-live="polite">
+          No favorites yet. Click the heart in the edit view to add images.
+        </p>
+      )}
+      <ThumbnailMoreMenu
+        isOpen={openMoreMenuIndex !== null}
+        anchorRect={moreMenuAnchorRect}
+        onClose={() => {
+          setOpenMoreMenuIndex(null)
+          setMoreMenuAnchorRect(null)
+        }}
+      />
       <aside className="gallery-chat-column" aria-label="Favorites chat column" />
     </main>
   )

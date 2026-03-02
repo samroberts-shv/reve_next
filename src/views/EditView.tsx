@@ -2,10 +2,11 @@ import type { ReactNode } from 'react'
 
 type EditViewProps = {
   children: ReactNode
+  isChatOpen?: boolean
 }
 
-function EditView({ children }: EditViewProps) {
-  return <main className="image-stage">{children}</main>
+function EditView({ children, isChatOpen = false }: EditViewProps) {
+  return <main className={`image-stage${isChatOpen ? ' image-stage--chat-open' : ''}`}>{children}</main>
 }
 
 export default EditView
