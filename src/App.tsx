@@ -46,6 +46,8 @@ import GalleryView from './views/GalleryView'
 import TrancheView from './views/TrancheView'
 import FavoritesView from './views/FavoritesView'
 import StandardMenu from './components/StandardMenu'
+import ComposerMenu, { DEFAULT_VALUES as COMPOSER_MENU_DEFAULTS, type ComposerMenuValues } from './components/ComposerMenu'
+import TakePhotoPanel from './components/TakePhotoPanel'
 
 type Tool = 'commentDraw' | 'select' | 'reframe'
 type BottomLeftMenu = 'info' | 'objects' | 'adjust' | 'effects' | 'quickEdit' | null
@@ -787,6 +789,10 @@ function App() {
   const [favoritedImageSrcs, setFavoritedImageSrcs] = useState<string[]>([])
   const [editHeaderMoreMenuOpen, setEditHeaderMoreMenuOpen] = useState(false)
   const [editHeaderMoreMenuAnchorRect, setEditHeaderMoreMenuAnchorRect] = useState<DOMRect | null>(null)
+  const [isComposerMoreMenuOpen, setIsComposerMoreMenuOpen] = useState(false)
+  const [composerMoreMenuAnchorRect, setComposerMoreMenuAnchorRect] = useState<DOMRect | null>(null)
+  const [composerMenuValues, setComposerMenuValues] = useState<ComposerMenuValues>(COMPOSER_MENU_DEFAULTS)
+  const [isTakePhotoPanelOpen, setIsTakePhotoPanelOpen] = useState(false)
   const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
   const adjustContentRef = useRef<HTMLDivElement | null>(null)
 
@@ -2170,6 +2176,13 @@ function App() {
         return
       }
 
+      if (isComposerMoreMenuOpen) {
+        event.preventDefault()
+        setIsComposerMoreMenuOpen(false)
+        setComposerMoreMenuAnchorRect(null)
+        return
+      }
+
       if (isPendingEditsMenuOpen) {
         event.preventDefault()
         setIsPendingEditsMenuOpen(false)
@@ -2201,6 +2214,7 @@ function App() {
   }, [
     displayedObjectPromptName,
     isComposerAddMenuOpen,
+    isComposerMoreMenuOpen,
     isPendingEditsMenuOpen,
     activeCommentId,
     activeBottomLeftMenu,
@@ -2352,6 +2366,29 @@ function App() {
             ['Copy image…', 'Add to album', 'Add to reference', 'Flag image'],
           ]}
           ariaLabel="Edit options"
+        />
+      )}
+      {showComposer && (
+        <TakePhotoPanel
+          isOpen={isTakePhotoPanelOpen}
+          onClose={() => setIsTakePhotoPanelOpen(false)}
+          onCapture={(dataUrl) => {
+            handleAddReferencedPendingEdit(dataUrl, 'Photo')
+          }}
+        />
+      )}
+      {showComposer && (
+        <ComposerMenu
+          isOpen={isComposerMoreMenuOpen}
+          anchorRect={composerMoreMenuAnchorRect}
+          placement="above"
+          onClose={() => {
+            setIsComposerMoreMenuOpen(false)
+            setComposerMoreMenuAnchorRect(null)
+          }}
+          values={composerMenuValues}
+          onValuesChange={setComposerMenuValues}
+          minWidth={240}
         />
       )}
       {showBottomUi && (
@@ -2722,9 +2759,16 @@ function App() {
                       <img className="composer-add-action-glyph" src={webGlyph} alt="" aria-hidden="true" />
                       <span>Web Search</span>
                     </button>
-                    <button className="composer-add-action-button" type="button">
+                    <button
+                      className="composer-add-action-button"
+                      type="button"
+                      onClick={() => {
+                        setIsComposerAddMenuOpen(false)
+                        setIsTakePhotoPanelOpen(true)
+                      }}
+                    >
                       <img className="composer-add-action-glyph" src={cameraGlyph} alt="" aria-hidden="true" />
-                      <span>Take Photo</span>
+                      <span>Take a Photo</span>
                     </button>
                     <button className="composer-add-action-button" type="button">
                       <img className="composer-add-action-glyph" src={shareGlyph} alt="" aria-hidden="true" />
@@ -2931,7 +2975,22 @@ function App() {
           >
             <img className="composer-add-glyph" src={addGlyph} alt="" aria-hidden="true" />
           </button>
-          <button className="composer-more-inline-button" type="button" aria-label="More options">
+          <button
+            className="composer-more-inline-button"
+            type="button"
+            aria-label="More options"
+            aria-haspopup="menu"
+            aria-expanded={isComposerMoreMenuOpen}
+            onClick={(e) => {
+              if (isComposerMoreMenuOpen) {
+                setIsComposerMoreMenuOpen(false)
+                setComposerMoreMenuAnchorRect(null)
+              } else {
+                setIsComposerMoreMenuOpen(true)
+                setComposerMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+              }
+            }}
+          >
             <img className="composer-add-glyph" src={moreGlyph} alt="" aria-hidden="true" />
           </button>
           </div>

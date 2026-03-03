@@ -899,12 +899,18 @@
 .composer--gallery-chat {
   right: 10px;
   width: 300px;
+  align-items: stretch;
   z-index: 26;
 }
 
+.composer--gallery-chat .composer-main-row {
+  width: 100%;
+}
+
 .composer--gallery-chat .composer-input-shell {
-  width: auto;
   flex: 1;
+  min-width: 0;
+  width: auto;
 }
 
 .composer--tranche .composer-main-row {
@@ -1064,6 +1070,130 @@
   height: 18px;
   display: block;
   filter: brightness(0) saturate(100%) invert(91%) sepia(0%) saturate(0%) hue-rotate(164deg) brightness(80%) contrast(90%);
+}
+
+.take-photo-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.take-photo-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 41;
+  border-radius: 10px;
+  background-color: rgba(38, 38, 38, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.take-photo-close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.take-photo-close-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.take-photo-close-button img {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.take-photo-video-container {
+  flex: 1;
+  min-height: 200px;
+  background: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.take-photo-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.take-photo-error {
+  color: #999999;
+  font-size: 14px;
+  padding: 20px;
+}
+
+.take-photo-controls {
+  padding: 28px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+.take-photo-camera-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.take-photo-controls .take-photo-capture-button {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.take-photo-camera-select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cccccc;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.take-photo-capture-button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 4px solid #ffffff;
+  background: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.take-photo-capture-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.take-photo-capture-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .composer-source-browser {
@@ -1391,7 +1521,6 @@
   width: 14px;
   height: 16px;
   opacity: 0;
-  filter: invert(1);
 }
 
 .composer-pending-item:hover .composer-pending-trash {
@@ -1802,37 +1931,67 @@
 
 .tranche-group {
   width: 100%;
+  height: calc(100vh - 80px);
   min-height: calc(100vh - 80px);
   scroll-snap-align: start;
   scroll-snap-stop: always;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   padding-bottom: 10px;
   box-sizing: border-box;
 }
 
 .tranche-grid {
   width: 100%;
-  column-gap: 10px;
-  column-fill: balance;
+  display: grid;
+  gap: 10px;
+  align-content: stretch;
+  box-sizing: border-box;
 }
 
 .tranche-masonry-item.gallery-view-thumb-button {
   width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   aspect-ratio: auto;
-  display: block;
-  break-inside: avoid;
-  page-break-inside: avoid;
-  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   text-align: left;
 }
 
-.tranche-masonry-image.gallery-view-thumb-image {
-  width: 100%;
-  max-height: var(--tranche-image-max-height, calc(100vh - 120px));
-  height: auto;
+.tranche-image-wrapper {
+  position: relative;
   display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tranche-masonry-image.gallery-view-thumb-image {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  object-fit: contain !important;
+  object-position: center;
+}
+
+.tranche-image-wrapper .gallery-view-thumb-more,
+.tranche-image-wrapper .gallery-view-thumb-caption {
+  position: absolute;
+}
+
+.tranche-image-wrapper .gallery-view-thumb-more {
+  top: 8px;
+  right: 8px;
+}
+
+.tranche-image-wrapper .gallery-view-thumb-caption {
+  left: 0;
+  bottom: 0;
+  right: 0;
 }
 
 .tranche-chat-overlay {
@@ -2081,10 +2240,96 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+.thumbnail-more-menu--with-status .thumbnail-more-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.thumbnail-more-menu-item-status {
+  color: #999999;
+  font-size: 12px;
+  flex: 1;
+  text-align: right;
+  min-width: 0;
+}
+
+.thumbnail-more-menu-item-chevron {
+  width: 6px;
+  height: 11px;
+  flex-shrink: 0;
+  filter: brightness(0) saturate(100%) invert(91%) sepia(0%) saturate(0%) hue-rotate(164deg) brightness(80%) contrast(90%);
+}
+
 .thumbnail-more-menu-separator {
   height: 1px;
   background-color: rgba(255, 255, 255, 0.15);
   margin: 4px 0;
+}
+
+.thumbnail-more-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
+.thumbnail-more-menu-back-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #cccccc;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.thumbnail-more-menu-back-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+}
+
+.thumbnail-more-menu-back-button img {
+  width: 9px;
+  height: 16px;
+  display: block;
+}
+
+.thumbnail-more-menu-header-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cccccc;
+}
+
+.thumbnail-more-menu--with-status .thumbnail-more-menu-item--sub {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.thumbnail-more-menu-item--sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+}
+
+.thumbnail-more-menu-item-check,
+.thumbnail-more-menu-item-check-placeholder {
+  width: 12px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.thumbnail-more-menu-item-check-placeholder {
+  display: block;
 }
 
 .gallery-view-thumb-date {

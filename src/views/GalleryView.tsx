@@ -117,7 +117,7 @@ function GalleryView({
         btn.style.position = ''
         btn.style.zIndex = ''
       } else {
-        btn.style.opacity = index === highlightedIndex ? '' : '0.5'
+        btn.style.opacity = index === highlightedIndex ? '' : '0.2'
         btn.style.transform = index === highlightedIndex ? 'scale(1.1)' : ''
         btn.style.position = index === highlightedIndex ? 'relative' : ''
         btn.style.zIndex = index === highlightedIndex ? '1' : ''

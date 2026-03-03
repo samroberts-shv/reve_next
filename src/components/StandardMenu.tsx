@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { type CSSProperties, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import chevronRightGlyph from '../assets/glyphs/chevron_right.svg'
 
 type StandardMenuProps = {
   isOpen: boolean
@@ -8,12 +9,28 @@ type StandardMenuProps = {
   onAction?: (action: string) => void
   options: string[][]
   ariaLabel?: string
+  placement?: 'below' | 'above'
+  statusValues?: Record<string, string>
+  showChevron?: boolean
+  minWidth?: number
 }
 
-function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabel = 'Menu' }: StandardMenuProps) {
+function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabel = 'Menu', placement = 'below', statusValues, showChevron, minWidth = 200 }: StandardMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   if (!isOpen || !anchorRect) return null
+
+  const menuStyle: CSSProperties = {
+    position: 'fixed',
+    left: Math.max(8, Math.min(anchorRect.right - minWidth, window.innerWidth - minWidth - 8)),
+    width: minWidth,
+    minWidth,
+  }
+  if (placement === 'above') {
+    menuStyle.bottom = window.innerHeight - anchorRect.top + 8
+  } else {
+    menuStyle.top = anchorRect.bottom + 8
+  }
 
   const content = (
     <>
@@ -25,15 +42,10 @@ function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabe
       />
       <div
         ref={menuRef}
-        className="thumbnail-more-menu"
+        className={`thumbnail-more-menu${statusValues || showChevron ? ' thumbnail-more-menu--with-status' : ''}`}
         role="menu"
         aria-label={ariaLabel}
-        style={{
-          position: 'fixed',
-          left: Math.max(8, Math.min(anchorRect.right - 200, window.innerWidth - 208)),
-          top: anchorRect.bottom + 8,
-          minWidth: 200,
-        }}
+        style={menuStyle}
       >
         {options.map((group, groupIndex) => (
           <div key={groupIndex}>
@@ -50,6 +62,12 @@ function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabe
                 }}
               >
                 {label}
+                {statusValues?.[label] != null && statusValues[label] !== '' && (
+                  <span className="thumbnail-more-menu-item-status">{statusValues[label]}</span>
+                )}
+                {showChevron && (
+                  <img className="thumbnail-more-menu-item-chevron" src={chevronRightGlyph} alt="" aria-hidden="true" />
+                )}
               </button>
             ))}
           </div>

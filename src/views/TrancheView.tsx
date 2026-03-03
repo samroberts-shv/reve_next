@@ -26,6 +26,7 @@ type TrancheViewProps = {
 
 const trancheTileGapPx = 10
 const trancheMasonryMinColumnWidthPx = 380
+const trancheMasonryMinColumnWidthFloorPx = 280
 const trancheChatScript = [
   {
     user: 'create a snowy scene in the mountains of mont blanc',
@@ -220,14 +221,10 @@ function TrancheView({
                   (() => {
                     const columnCount = getTrancheColumnCount(tranche.length)
                     const rowCount = Math.ceil(tranche.length / columnCount)
-                    const availableTrancheHeightPx = Math.max(200, window.innerHeight - 100)
-                    const imageMaxHeightPx = Math.max(
-                      150,
-                      (availableTrancheHeightPx - (rowCount - 1) * trancheTileGapPx) / rowCount,
-                    )
                     return {
-                      columnCount,
-                      '--tranche-image-max-height': `${imageMaxHeightPx}px`,
+                      gridTemplateColumns: `repeat(${columnCount}, 1fr)`,
+                      gridTemplateRows: `repeat(${rowCount}, 1fr)`,
+                      height: '100%',
                     } as CSSProperties
                   })()
                 }
@@ -251,40 +248,42 @@ function TrancheView({
                       onOpenEditView(tile.src, tile.globalIndex, imageAspectRatio, rect, trancheIdx)
                     }}
                   >
-                    <span
-                      className="gallery-view-thumb-more"
-                      role="button"
-                      tabIndex={0}
-                      aria-label="More options"
-                      aria-haspopup="menu"
-                      aria-expanded={openMoreMenuIndex === tile.globalIndex}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (openMoreMenuIndex === tile.globalIndex) {
-                          setOpenMoreMenuIndex(null)
-                          setMoreMenuAnchorRect(null)
-                        } else {
-                          setOpenMoreMenuIndex(tile.globalIndex)
-                          setMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
-                        }
-                      }}
-                      onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
-                    >
-                      <img src={moreGlyph} alt="" aria-hidden="true" />
-                    </span>
-                    <img
-                      className="gallery-view-thumb-image tranche-masonry-image"
-                      src={resolveImageSrc(tile.src)}
-                      alt=""
-                      aria-hidden="true"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <span className="gallery-view-thumb-caption">
-                      {resolveImageDate(tile.src, tile.globalIndex) && (
-                        <span className="gallery-view-thumb-date">{resolveImageDate(tile.src, tile.globalIndex)}</span>
-                      )}
-                      <span className="gallery-view-thumb-name">{resolveImageName(tile.src, tile.globalIndex)}</span>
+                    <span className="tranche-image-wrapper">
+                      <span
+                        className="gallery-view-thumb-more"
+                        role="button"
+                        tabIndex={0}
+                        aria-label="More options"
+                        aria-haspopup="menu"
+                        aria-expanded={openMoreMenuIndex === tile.globalIndex}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (openMoreMenuIndex === tile.globalIndex) {
+                            setOpenMoreMenuIndex(null)
+                            setMoreMenuAnchorRect(null)
+                          } else {
+                            setOpenMoreMenuIndex(tile.globalIndex)
+                            setMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+                          }
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
+                      >
+                        <img src={moreGlyph} alt="" aria-hidden="true" />
+                      </span>
+                      <img
+                        className="gallery-view-thumb-image tranche-masonry-image"
+                        src={resolveImageSrc(tile.src)}
+                        alt=""
+                        aria-hidden="true"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <span className="gallery-view-thumb-caption">
+                        {resolveImageDate(tile.src, tile.globalIndex) && (
+                          <span className="gallery-view-thumb-date">{resolveImageDate(tile.src, tile.globalIndex)}</span>
+                        )}
+                        <span className="gallery-view-thumb-name">{resolveImageName(tile.src, tile.globalIndex)}</span>
+                      </span>
                     </span>
                   </button>
                 ))}
