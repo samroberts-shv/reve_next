@@ -24,10 +24,12 @@ function TakePhotoPanel({ isOpen, onClose, onCapture }: TakePhotoPanelProps) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [streamReady, setStreamReady] = useState(false)
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+    setStreamReady(false)
   }, [])
 
   const startStream = useCallback(
@@ -40,9 +42,7 @@ function TakePhotoPanel({ isOpen, onClose, onCapture }: TakePhotoPanelProps) {
         }
         const stream = await navigator.mediaDevices.getUserMedia(constraints)
         streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-        }
+        setStreamReady(true)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not access camera')
       }
@@ -59,13 +59,13 @@ function TakePhotoPanel({ isOpen, onClose, onCapture }: TakePhotoPanelProps) {
     let cancelled = false
 
     const init = async () => {
+      await startStream()
+      if (cancelled || !streamRef.current) return
       const videoDevices = await getVideoDevices()
       if (cancelled) return
       setDevices(videoDevices)
       if (videoDevices.length > 0) {
         setSelectedDeviceId(videoDevices[0].deviceId)
-      } else {
-        void startStream()
       }
     }
 
@@ -77,10 +77,20 @@ function TakePhotoPanel({ isOpen, onClose, onCapture }: TakePhotoPanelProps) {
   }, [isOpen, startStream, stopStream])
 
   useEffect(() => {
-    if (isOpen && selectedDeviceId) {
+    if (isOpen && selectedDeviceId && devices.length > 1) {
       void startStream(selectedDeviceId)
     }
-  }, [isOpen, selectedDeviceId, startStream])
+  }, [isOpen, selectedDeviceId, devices.length, startStream])
+
+  useEffect(() => {
+    if (!streamReady || !streamRef.current || !videoRef.current) return
+    const video = videoRef.current
+    const stream = streamRef.current
+    video.srcObject = stream
+    video.play().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Could not play video')
+    })
+  }, [streamReady])
 
   const handleCapture = useCallback(() => {
     const video = videoRef.current
