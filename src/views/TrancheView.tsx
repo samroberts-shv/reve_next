@@ -26,7 +26,6 @@ type TrancheViewProps = {
 
 const trancheTileGapPx = 10
 const trancheMasonryMinColumnWidthPx = 380
-const trancheMasonryMinColumnWidthFloorPx = 280
 const trancheChatScript = [
   {
     user: 'create a snowy scene in the mountains of mont blanc',

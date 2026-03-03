@@ -196,13 +196,6 @@ const objectThumbnailsWithObjectName = objectThumbnails.map((objectThumbnail) =>
   objectName: imageObjectNameLookup.get(normalizeObjectName(objectThumbnail.name)) ?? null,
 }))
 
-const getObjectBoxStyle = (imageObject: (typeof imageObjects)[number]) => ({
-  left: `${(imageObject.x / sourceImageSize.width) * 100}%`,
-  top: `${(imageObject.y / sourceImageSize.height) * 100}%`,
-  width: `${(imageObject.width / sourceImageSize.width) * 100}%`,
-  height: `${(imageObject.height / sourceImageSize.height) * 100}%`,
-})
-
 type ObjectDisplayBounds = { centerX: number; centerY: number; width: number; height: number }
 
 function getObjectDisplayBounds(
@@ -246,26 +239,6 @@ function getObjectBoxStyleFromDisplayBounds(bounds: ObjectDisplayBounds): CSSPro
     width: `${widthPct}%`,
     height: `${heightPct}%`,
   }
-}
-
-const getSmallestObjectAtSourcePoint = (sourceX: number, sourceY: number) =>
-  imageObjects
-    .filter(
-      (imageObject) =>
-        sourceX >= imageObject.x &&
-        sourceX <= imageObject.x + imageObject.width &&
-        sourceY >= imageObject.y &&
-        sourceY <= imageObject.y + imageObject.height,
-    )
-    .sort((objectA, objectB) => objectA.width * objectA.height - objectB.width * objectB.height)[0] ?? null
-
-const getSmallestObjectAtClientPoint = (clientX: number, clientY: number, imageFrameBounds: DOMRect) => {
-  const localX = clientX - imageFrameBounds.left
-  const localY = clientY - imageFrameBounds.top
-  const sourceX = (localX / imageFrameBounds.width) * sourceImageSize.width
-  const sourceY = (localY / imageFrameBounds.height) * sourceImageSize.height
-
-  return getSmallestObjectAtSourcePoint(sourceX, sourceY)
 }
 
 function getSmallestObjectAtSourcePointWithDisplay(
