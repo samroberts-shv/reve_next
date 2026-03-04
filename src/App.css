@@ -108,6 +108,51 @@
   background-color: #333333;
 }
 
+.tooltip-button-wrap {
+  position: relative;
+}
+
+.tooltip {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background-color: rgba(38, 38, 38, 0.95);
+  color: #cccccc;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.tooltip--above {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
+.tooltip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+  border: 1px solid #666666;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666666;
+}
+
+.tooltip-button-wrap .glyph-button {
+  margin: 0;
+}
+
 .glyph-icon {
   display: block;
 }
@@ -158,6 +203,10 @@
 .gallery-header-segmented {
   display: inline-flex;
   align-items: center;
+}
+
+.gallery-header-segmented .tooltip-button-wrap {
+  display: inline-flex;
 }
 
 .gallery-header-segment {
@@ -227,6 +276,16 @@
   opacity: 0;
 }
 
+.reframe-control-buttons {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 30;
+}
+
 .tool-palette {
   position: fixed;
   left: 50%;
@@ -236,6 +295,10 @@
   align-items: center;
   gap: 0;
   z-index: 30;
+}
+
+.tool-palette .tooltip-button-wrap {
+  display: inline-flex;
 }
 
 .tool-button {
@@ -2309,6 +2372,13 @@
   color: #cccccc;
 }
 
+.thumbnail-more-menu--with-status.thumbnail-more-menu--with-check .thumbnail-more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+}
+
 .thumbnail-more-menu--with-status .thumbnail-more-menu-item--sub {
   justify-content: flex-start;
   text-align: left;
@@ -2602,6 +2672,7 @@
   max-height: calc(100vh - 120px);
   aspect-ratio: var(--image-aspect-ratio, 2720 / 1536);
   position: relative;
+  overflow: visible;
   transition:
     width 250ms ease,
     max-width 250ms ease,
@@ -2616,6 +2687,10 @@
 
 .image-frame--comment {
   cursor: url('./assets/cursors/pen_half.png') 0 23, auto;
+}
+
+.image-frame--reframe {
+  cursor: default;
 }
 
 .image-frame--interaction-locked {
@@ -2634,6 +2709,66 @@
   height: auto;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.hero-image-reframe-container {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-image-reframe-container .hero-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.reframe-overlay {
+  cursor: grab;
+  z-index: 20;
+}
+
+.reframe-overlay:active {
+  cursor: grabbing;
+}
+
+.reframe-overlay-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.reframe-corner {
+  cursor: nwse-resize;
+  position: absolute;
+  pointer-events: auto;
+}
+
+.reframe-corner-tr,
+.reframe-corner-bl {
+  cursor: nesw-resize;
+}
+
+.reframe-box-interior {
+  cursor: move;
+  pointer-events: auto;
+}
+
+.reframe-edge {
+  pointer-events: auto;
+}
+
+.reframe-edge-top,
+.reframe-edge-bottom {
+  cursor: ns-resize;
+}
+
+.reframe-edge-left,
+.reframe-edge-right {
+  cursor: ew-resize;
 }
 
 .hero-image--view-transition-hidden {

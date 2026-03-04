@@ -1,6 +1,7 @@
 import { type CSSProperties, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import chevronRightGlyph from '../assets/glyphs/chevron_right.svg'
+import checkGlyph from '../assets/glyphs/check.svg'
 
 type StandardMenuProps = {
   isOpen: boolean
@@ -12,10 +13,11 @@ type StandardMenuProps = {
   placement?: 'below' | 'above'
   statusValues?: Record<string, string>
   showChevron?: boolean
+  checkedOption?: string
   minWidth?: number
 }
 
-function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabel = 'Menu', placement = 'below', statusValues, showChevron, minWidth = 200 }: StandardMenuProps) {
+function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabel = 'Menu', placement = 'below', statusValues, showChevron, checkedOption, minWidth = 200 }: StandardMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   if (!isOpen || !anchorRect) return null
@@ -42,7 +44,7 @@ function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabe
       />
       <div
         ref={menuRef}
-        className={`thumbnail-more-menu${statusValues || showChevron ? ' thumbnail-more-menu--with-status' : ''}`}
+        className={`thumbnail-more-menu${statusValues || showChevron || checkedOption != null ? ' thumbnail-more-menu--with-status' : ''}${checkedOption != null ? ' thumbnail-more-menu--with-check' : ''}`}
         role="menu"
         aria-label={ariaLabel}
         style={menuStyle}
@@ -54,14 +56,22 @@ function StandardMenu({ isOpen, anchorRect, onClose, onAction, options, ariaLabe
               <button
                 key={label}
                 type="button"
-                className="thumbnail-more-menu-item"
-                role="menuitem"
+                className={`thumbnail-more-menu-item${checkedOption != null ? ' thumbnail-more-menu-item--sub' : ''}`}
+                role={checkedOption != null ? 'menuitemradio' : 'menuitem'}
+                aria-checked={checkedOption === label}
                 onClick={() => {
                   onAction?.(label)
                   onClose()
                 }}
               >
-                {label}
+                {checkedOption != null && (
+                  checkedOption === label ? (
+                    <img className="thumbnail-more-menu-item-check" src={checkGlyph} alt="" aria-hidden="true" />
+                  ) : (
+                    <span className="thumbnail-more-menu-item-check-placeholder" />
+                  )
+                )}
+                <span>{label}</span>
                 {statusValues?.[label] != null && statusValues[label] !== '' && (
                   <span className="thumbnail-more-menu-item-status">{statusValues[label]}</span>
                 )}

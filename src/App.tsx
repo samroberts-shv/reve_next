@@ -40,12 +40,17 @@ import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
 import boundingBoxBr from './assets/boundingbox/br.png'
+import rotateCursorUpperLeft from './assets/cursors/rotate_upper_left.png'
+import rotateCursorUpperRight from './assets/cursors/rotate_upper_right.png'
+import rotateCursorLowerLeft from './assets/cursors/rotate_lower_left.png'
+import rotateCursorLowerRight from './assets/cursors/rotate_lower_right.png'
 import fixedCollectionImageSrc from './assets/photos/jpgs/montblanctrail.jpg'
 import EditView from './views/EditView'
 import GalleryView from './views/GalleryView'
 import TrancheView from './views/TrancheView'
 import FavoritesView from './views/FavoritesView'
 import StandardMenu from './components/StandardMenu'
+import TooltipButton from './components/TooltipButton'
 import ComposerMenu, { DEFAULT_VALUES as COMPOSER_MENU_DEFAULTS, type ComposerMenuValues } from './components/ComposerMenu'
 import TakePhotoPanel from './components/TakePhotoPanel'
 
@@ -728,6 +733,7 @@ function App() {
   const [addMenuSearchQuery, setAddMenuSearchQuery] = useState('')
   const [webSearchResults, setWebSearchResults] = useState<SearchThumbnail[]>([])
   const [referencePendingEdits, setReferencePendingEdits] = useState<ReferencePendingEdit[]>([])
+  const [reframePendingEdit, setReframePendingEdit] = useState<{ id: string; text: string; thumbnailSrc: string } | null>(null)
   const [isWebSearchLoading, setIsWebSearchLoading] = useState(false)
   const [webSearchError, setWebSearchError] = useState<string | null>(null)
   const [hasWebSearchPerformed, setHasWebSearchPerformed] = useState(false)
@@ -769,11 +775,55 @@ function App() {
   const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
   const adjustContentRef = useRef<HTMLDivElement | null>(null)
 
+  const REFRAME_CONTRACT_PX = 200
+  const REFRAME_OVERLAY_PADDING_PX = 100
+  const [reframeImageBounds, setReframeImageBounds] = useState<{
+    width: number
+    height: number
+    offsetX: number
+    offsetY: number
+  } | null>(null)
+  const [reframeBox, setReframeBox] = useState<{ left: number; top: number; right: number; bottom: number }>({
+    left: 0,
+    top: 0,
+    right: 1,
+    bottom: 1,
+  })
+  const reframeCornerDragRef = useRef<{
+    corner: 'tl' | 'tr' | 'bl' | 'br'
+    startBounds: { left: number; top: number; right: number; bottom: number }
+    startClientX: number
+    startClientY: number
+  } | null>(null)
+  const reframeBoxMoveRef = useRef<{
+    startBounds: { left: number; top: number; right: number; bottom: number }
+    startClientX: number
+    startClientY: number
+  } | null>(null)
+  const reframeEdgeDragRef = useRef<{
+    edge: 'top' | 'bottom' | 'left' | 'right'
+    startBounds: { left: number; top: number; right: number; bottom: number }
+    startClientX: number
+    startClientY: number
+  } | null>(null)
+  const [reframeRotation, setReframeRotation] = useState(0)
+  const [reframeRotateCursor, setReframeRotateCursor] = useState<'upper-left' | 'upper-right' | 'lower-left' | 'lower-right' | null>(null)
+  const reframeRotateDragRef = useRef<{
+    startRotation: number
+    startClientX: number
+    quadrant: 'upper-left' | 'upper-right' | 'lower-left' | 'lower-right'
+  } | null>(null)
+  const reframeBoxInitializedRef = useRef(false)
+  const [reframeAspectRatio, setReframeAspectRatio] = useState('16:9')
+  const [isReframeAspectRatioMenuOpen, setIsReframeAspectRatioMenuOpen] = useState(false)
+  const [reframeAspectRatioMenuAnchorRect, setReframeAspectRatioMenuAnchorRect] = useState<DOMRect | null>(null)
+
   const hasComposerChanges =
     composerInput.trim().length > 0 ||
     composerChanges.length > 0 ||
     commentAnnotations.length > 0 ||
-    referencePendingEdits.length > 0
+    referencePendingEdits.length > 0 ||
+    reframePendingEdit != null
   const canRender = hasComposerChanges && !isReveRendering
   const hasRenderHistory = renderHistory.length > 0
   const isCollectionView = currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites'
@@ -815,9 +865,13 @@ function App() {
         thumbnailSrc: pendingEdit.thumbnailSrc,
       }))
 
-      return [...commentPendingEdits, ...referencedPendingEditsMapped]
+      const reframeMapped = reframePendingEdit
+        ? [{ id: reframePendingEdit.id, text: reframePendingEdit.text, thumbnailSrc: reframePendingEdit.thumbnailSrc }]
+        : []
+
+      return [...commentPendingEdits, ...referencedPendingEditsMapped, ...reframeMapped]
     },
-    [commentAnnotations, referencePendingEdits],
+    [commentAnnotations, referencePendingEdits, reframePendingEdit],
   )
   const pendingEditCount = pendingEdits.length
   const isInteractionMenuOpen =
@@ -852,25 +906,28 @@ function App() {
       const im = sourceImageRef.current
       const frame = imageFrameRef.current
       if (!r || !im || !frame) return
-      const w = frame.clientWidth
-      const h = Math.round((w * im.naturalHeight) / im.naturalWidth)
+      let w: number
+      let h: number
+      if (selectedTool === 'reframe' && reframeImageBounds) {
+        w = Math.round(reframeImageBounds.width)
+        h = Math.round(reframeImageBounds.height)
+      } else {
+        w = frame.clientWidth
+        h = Math.round((w * im.naturalHeight) / im.naturalWidth)
+      }
       r.setSize(w, h)
       r.render()
     }
     renderer.setImage(img)
     renderer.setParams(normalizeAdjustParams(adjustSliderValues))
-    const frame = imageFrameRef.current
-    if (frame) {
-      const w = frame.clientWidth
-      const h = Math.round((w * img.naturalHeight) / img.naturalWidth)
-      renderer.setSize(w, h)
-    }
-    renderer.render()
+    updateSizeAndRender()
 
+    const frame = imageFrameRef.current
+    if (!frame) return
     const ro = new ResizeObserver(updateSizeAndRender)
-    ro.observe(frame!)
+    ro.observe(frame)
     return () => ro.disconnect()
-  }, [adjustSliderValues, sourceImageLoaded])
+  }, [adjustSliderValues, sourceImageLoaded, selectedTool, reframeImageBounds])
 
   useEffect(() => {
     if (!isInteractionMenuOpen) {
@@ -1007,7 +1064,35 @@ function App() {
     setActiveCommentId((previous) => (previous === commentId ? null : previous))
   }
 
+  const ensureReframePendingEdit = () => {
+    if (selectedTool !== 'reframe' || !reframeImageBounds) return
+    setReframePendingEdit((prev) => {
+      const id = prev?.id ?? `reframe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      return {
+        id,
+        text: 'Reframe',
+        thumbnailSrc: displayImageSrc,
+      }
+    })
+  }
+
   const handleDeletePendingEdit = (pendingEditId: string) => {
+    if (pendingEditId.startsWith('reframe-')) {
+      setReframePendingEdit(null)
+      setReframeRotation(0)
+      if (reframeImageBounds) {
+        const pad = REFRAME_OVERLAY_PADDING_PX
+        const ow = reframeImageBounds.width + 2 * pad
+        const oh = reframeImageBounds.height + 2 * pad
+        setReframeBox({
+          left: pad / ow,
+          top: pad / oh,
+          right: (pad + reframeImageBounds.width) / ow,
+          bottom: (pad + reframeImageBounds.height) / oh,
+        })
+      }
+      return
+    }
     if (pendingEditId.startsWith('reference-')) {
       const toDelete = referencePendingEdits.find((pendingEdit) => pendingEdit.id === pendingEditId)
       if (toDelete?.source === 'composer' && toDelete.mentionToken) {
@@ -1212,6 +1297,7 @@ function App() {
     // Clear comment annotations immediately when rendering starts.
     setCommentAnnotations([])
     setReferencePendingEdits([])
+    setReframePendingEdit(null)
     setIsPendingEditsMenuOpen(false)
     setActiveCommentId(null)
     setIsDrawingCommentStroke(false)
@@ -1753,6 +1839,15 @@ function App() {
       commentStrokeStartPointRef.current = null
       collapseActiveCommentPanel()
     }
+    if (selectedTool === 'reframe') {
+      reframeBoxInitializedRef.current = false
+      setReframeBox({ left: 0, top: 0, right: 1, bottom: 1 })
+    } else {
+      reframeBoxInitializedRef.current = false
+      setReframeImageBounds(null)
+      setReframeRotation(0)
+      setReframeRotateCursor(null)
+    }
   }, [selectedTool])
 
   useEffect(() => {
@@ -1771,6 +1866,92 @@ function App() {
       }
     }
   }, [selectedTool])
+
+  useLayoutEffect(() => {
+    if (selectedTool !== 'reframe' || !imageFrameRef.current) {
+      return
+    }
+    const frame = imageFrameRef.current
+    const updateReframeBounds = () => {
+      const rect = frame.getBoundingClientRect()
+      const w = rect.width
+      const h = rect.height
+      const longest = Math.max(w, h)
+      const scale = Math.max(0.1, (longest - REFRAME_CONTRACT_PX) / longest)
+      const newW = w * scale
+      const newH = h * scale
+      setReframeImageBounds({
+        width: newW,
+        height: newH,
+        offsetX: (w - newW) / 2,
+        offsetY: (h - newH) / 2,
+      })
+    }
+    updateReframeBounds()
+    const ro = new ResizeObserver(updateReframeBounds)
+    ro.observe(frame)
+    return () => ro.disconnect()
+  }, [selectedTool])
+
+  useEffect(() => {
+    if (
+      selectedTool === 'reframe' &&
+      reframeImageBounds &&
+      !reframeBoxInitializedRef.current
+    ) {
+      reframeBoxInitializedRef.current = true
+      const pad = REFRAME_OVERLAY_PADDING_PX
+      const ow = reframeImageBounds.width + 2 * pad
+      const oh = reframeImageBounds.height + 2 * pad
+      setReframeBox({
+        left: pad / ow,
+        top: pad / oh,
+        right: (pad + reframeImageBounds.width) / ow,
+        bottom: (pad + reframeImageBounds.height) / oh,
+      })
+    }
+  }, [selectedTool, reframeImageBounds])
+
+  useEffect(() => {
+    if (
+      reframeAspectRatio === 'Custom' ||
+      !reframeImageBounds ||
+      selectedTool !== 'reframe'
+    ) {
+      return
+    }
+    const parseAspectRatio = (s: string): number | null => {
+      const m = s.match(/^(\d+):(\d+)$/)
+      if (!m) return null
+      return parseInt(m[1], 10) / parseInt(m[2], 10)
+    }
+    const R = parseAspectRatio(reframeAspectRatio)
+    if (R == null || R <= 0) return
+
+    const pad = REFRAME_OVERLAY_PADDING_PX
+    const overlayW = reframeImageBounds.width + 2 * pad
+    const overlayH = reframeImageBounds.height + 2 * pad
+
+    const imageLeft = pad / overlayW
+    const imageRight = (pad + reframeImageBounds.width) / overlayW
+    const imageTop = pad / overlayH
+    const imageBottom = (pad + reframeImageBounds.height) / overlayH
+    const imageW = imageRight - imageLeft
+    const imageH = imageBottom - imageTop
+
+    const k = R * overlayH / overlayW
+    const maxBoxH = Math.min(imageH, imageW / k)
+    const maxBoxW = k * maxBoxH
+
+    const centerX = (imageLeft + imageRight) / 2
+    const centerY = (imageTop + imageBottom) / 2
+    const left = centerX - maxBoxW / 2
+    const right = centerX + maxBoxW / 2
+    const top = centerY - maxBoxH / 2
+    const bottom = centerY + maxBoxH / 2
+
+    setReframeBox({ left, top, right, bottom })
+  }, [reframeAspectRatio, reframeImageBounds, selectedTool])
 
   useLayoutEffect(() => {
     if (!displayedObjectPrompt || !imageFrameRef.current || !objectPromptPanelRef.current) {
@@ -2195,6 +2376,69 @@ function App() {
     collapseActiveCommentPanel,
   ])
 
+  useEffect(() => {
+    if (currentView !== 'edit') {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const activeEl = document.activeElement
+      const isTyping =
+        activeEl &&
+        (activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          (activeEl instanceof HTMLElement && activeEl.isContentEditable))
+
+      if (event.key === 'f' || event.key === 'F') {
+        if (isTyping) return
+        event.preventDefault()
+        setFavoritedImageSrcs((previous) =>
+          previous.includes(displayImageSrc)
+            ? previous.filter((src) => src !== displayImageSrc)
+            : [...previous, displayImageSrc],
+        )
+        return
+      }
+
+      if (event.key === 'd' || event.key === 'D') {
+        if (isTyping) return
+        event.preventDefault()
+        const link = document.createElement('a')
+        link.href = displayImageSrc
+        link.download = 'image.jpg'
+        link.click()
+        return
+      }
+
+      // Tool shortcuts: always work (same as clicking the button). Blur to exit any focused text field.
+      if (event.key === 'c' || event.key === 'C') {
+        event.preventDefault()
+        if (activeEl instanceof HTMLElement) activeEl.blur()
+        setSelectedTool('commentDraw')
+        return
+      }
+
+      if (event.key === 's' || event.key === 'S') {
+        event.preventDefault()
+        if (activeEl instanceof HTMLElement) activeEl.blur()
+        setSelectedTool('select')
+        return
+      }
+
+      if (event.key === 'r' || event.key === 'R') {
+        event.preventDefault()
+        if (activeEl instanceof HTMLElement) activeEl.blur()
+        setSelectedTool('reframe')
+        return
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [currentView, displayImageSrc])
+
   return (
     <>
       <div
@@ -2248,40 +2492,44 @@ function App() {
               <span className="gallery-header-control-text">Upload</span>
             </button>
             <div className="gallery-header-segmented" role="tablist" aria-label="Gallery view mode">
-              <button
+              <TooltipButton
                 className={`gallery-header-segment gallery-header-segment--left${currentView === 'favorites' ? ' active' : ''}`}
-                type="button"
+                tooltip="Favorites"
                 role="tab"
+                aria-label="Favorites"
                 aria-selected={currentView === 'favorites'}
                 onClick={() => setCurrentView('favorites')}
               >
                 <img className="gallery-header-segment-glyph" src={favOnGlyph} alt="" aria-hidden="true" />
-              </button>
-              <button
+              </TooltipButton>
+              <TooltipButton
                 className={`gallery-header-segment${currentView === 'tranche' ? ' active' : ''}`}
-                type="button"
+                tooltip="Groups"
                 role="tab"
+                aria-label="Groups"
                 aria-selected={currentView === 'tranche'}
                 onClick={() => setCurrentView('tranche')}
               >
                 <img className="gallery-header-segment-glyph" src={trancheGlyph} alt="" aria-hidden="true" />
-              </button>
-              <button
+              </TooltipButton>
+              <TooltipButton
                 className={`gallery-header-segment gallery-header-segment--right${currentView === 'gallery' ? ' active' : ''}`}
-                type="button"
+                tooltip="Gallery"
                 role="tab"
+                aria-label="Gallery"
                 aria-selected={currentView === 'gallery'}
                 onClick={() => setCurrentView('gallery')}
               >
                 <img className="gallery-header-segment-glyph" src={gridGlyph} alt="" aria-hidden="true" />
-              </button>
+              </TooltipButton>
             </div>
           </>
         ) : (
           <>
-            <button
+            <TooltipButton
               className="glyph-button"
-              type="button"
+              tooltip={favoritedImageSrcs.includes(displayImageSrc) ? 'Unfavorite' : 'Favorite'}
+              shortcut="F"
               aria-label={favoritedImageSrcs.includes(displayImageSrc) ? 'Remove from favorites' : 'Add to favorites'}
               onClick={() => {
                 setFavoritedImageSrcs((previous) =>
@@ -2296,19 +2544,30 @@ function App() {
                 src={favoritedImageSrcs.includes(displayImageSrc) ? favOnGlyph : favOffGlyph}
                 alt=""
               />
-            </button>
-            <button className="glyph-button" type="button" aria-label="Share">
+            </TooltipButton>
+            <TooltipButton className="glyph-button" tooltip="Share" aria-label="Share">
               <img className="glyph-icon" src={shareGlyph} alt="" />
-            </button>
-            <button className="glyph-button" type="button" aria-label="Download">
-              <img className="glyph-icon" src={downloadGlyph} alt="" />
-            </button>
-            <button className="glyph-button" type="button" aria-label="Delete">
-              <img className="glyph-icon" src={trashGlyph} alt="" />
-            </button>
-            <button
+            </TooltipButton>
+            <TooltipButton
               className="glyph-button"
-              type="button"
+              tooltip="Download"
+              shortcut="D"
+              aria-label="Download"
+              onClick={() => {
+                const link = document.createElement('a')
+                link.href = displayImageSrc
+                link.download = 'image.jpg'
+                link.click()
+              }}
+            >
+              <img className="glyph-icon" src={downloadGlyph} alt="" />
+            </TooltipButton>
+            <TooltipButton className="glyph-button" tooltip="Delete" aria-label="Delete">
+              <img className="glyph-icon" src={trashGlyph} alt="" />
+            </TooltipButton>
+            <TooltipButton
+              className="glyph-button"
+              tooltip="More"
               aria-label="More options"
               aria-haspopup="menu"
               aria-expanded={editHeaderMoreMenuOpen}
@@ -2316,14 +2575,14 @@ function App() {
                 if (editHeaderMoreMenuOpen) {
                   setEditHeaderMoreMenuOpen(false)
                   setEditHeaderMoreMenuAnchorRect(null)
-                } else {
+                } else if (e?.currentTarget) {
                   setEditHeaderMoreMenuOpen(true)
                   setEditHeaderMoreMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
                 }
               }}
             >
               <img className="glyph-icon" src={moreGlyph} alt="" />
-            </button>
+            </TooltipButton>
           </>
         )}
       </nav>
@@ -2373,25 +2632,56 @@ function App() {
         {topInstructionText}
       </p>
       )}
+      {showBottomUi && selectedTool === 'reframe' && (
+      <nav
+        className="reframe-control-buttons"
+        style={{ bottom: `${controlsBottomPx + 50}px` }}
+        aria-label="Reframe controls"
+      >
+        <button
+          className="text-action-button"
+          type="button"
+          onClick={(e) => {
+            setIsReframeAspectRatioMenuOpen(true)
+            setReframeAspectRatioMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
+          }}
+        >
+          Aspect Ratio: {reframeAspectRatio}
+        </button>
+        <StandardMenu
+          isOpen={isReframeAspectRatioMenuOpen}
+          anchorRect={reframeAspectRatioMenuAnchorRect}
+          onClose={() => {
+            setIsReframeAspectRatioMenuOpen(false)
+            setReframeAspectRatioMenuAnchorRect(null)
+          }}
+          onAction={(action) => {
+            setReframeAspectRatio(action)
+            if (action !== 'Custom') ensureReframePendingEdit()
+          }}
+          options={[['16:9', '3:2', '4:3', '1:1', '3:4', '2:3', '9:16', 'Custom']]}
+          checkedOption={reframeAspectRatio}
+          ariaLabel="Aspect ratio"
+          placement="above"
+        />
+        <button className="text-action-button" type="button">
+          Rotate Left
+        </button>
+        <button className="text-action-button" type="button">
+          Rotate Right
+        </button>
+        <button className="text-action-button" type="button">
+          Reset
+        </button>
+      </nav>
+      )}
       {showBottomUi && (
       <nav className="tool-palette" style={{ bottom: `${controlsBottomPx}px` }} aria-label="Tools">
-        <button
-          className={`tool-button${selectedTool === 'select' ? ' selected' : ''}`}
-          type="button"
-          aria-label="Move"
-          aria-pressed={selectedTool === 'select'}
-          onClick={() => setSelectedTool('select')}
-        >
-          <svg className="tool-glyph-svg tool-glyph-move" viewBox="0 0 12 16" aria-hidden="true">
-            <path
-              d="M5.29102 11.2236L2.00391 14.502C1.78711 14.7188 1.56152 14.8564 1.32715 14.915C1.09277 14.9795 0.875977 14.9795 0.676758 14.915C0.477539 14.8506 0.313477 14.7305 0.18457 14.5547C0.0615234 14.3789 0 14.1621 0 13.9043V1.23926C0 0.952148 0.0644531 0.711914 0.193359 0.518555C0.328125 0.325195 0.498047 0.19043 0.703125 0.114258C0.914062 0.0380859 1.13379 0.0263672 1.3623 0.0791016C1.59082 0.125977 1.80469 0.249023 2.00391 0.448242L10.9336 9.37793C11.1152 9.56543 11.2236 9.76465 11.2588 9.97559C11.2939 10.1865 11.2617 10.3887 11.1621 10.582C11.0684 10.7695 10.916 10.9248 10.7051 11.0479C10.5 11.165 10.2422 11.2236 9.93164 11.2236H5.29102Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
-        <button
+        <TooltipButton
           className={`tool-button${selectedTool === 'commentDraw' ? ' selected' : ''}`}
-          type="button"
+          tooltip="Comment"
+          shortcut="C"
+          placement="above"
           aria-label="Comment & Draw"
           aria-pressed={selectedTool === 'commentDraw'}
           onClick={() => setSelectedTool('commentDraw')}
@@ -2406,10 +2696,28 @@ function App() {
               fill="currentColor"
             />
           </svg>
-        </button>
-        <button
+        </TooltipButton>
+        <TooltipButton
+          className={`tool-button${selectedTool === 'select' ? ' selected' : ''}`}
+          tooltip="Select"
+          shortcut="S"
+          placement="above"
+          aria-label="Move"
+          aria-pressed={selectedTool === 'select'}
+          onClick={() => setSelectedTool('select')}
+        >
+          <svg className="tool-glyph-svg tool-glyph-move" viewBox="0 0 12 16" aria-hidden="true">
+            <path
+              d="M5.29102 11.2236L2.00391 14.502C1.78711 14.7188 1.56152 14.8564 1.32715 14.915C1.09277 14.9795 0.875977 14.9795 0.676758 14.915C0.477539 14.8506 0.313477 14.7305 0.18457 14.5547C0.0615234 14.3789 0 14.1621 0 13.9043V1.23926C0 0.952148 0.0644531 0.711914 0.193359 0.518555C0.328125 0.325195 0.498047 0.19043 0.703125 0.114258C0.914062 0.0380859 1.13379 0.0263672 1.3623 0.0791016C1.59082 0.125977 1.80469 0.249023 2.00391 0.448242L10.9336 9.37793C11.1152 9.56543 11.2236 9.76465 11.2588 9.97559C11.2939 10.1865 11.2617 10.3887 11.1621 10.582C11.0684 10.7695 10.916 10.9248 10.7051 11.0479C10.5 11.165 10.2422 11.2236 9.93164 11.2236H5.29102Z"
+              fill="currentColor"
+            />
+          </svg>
+        </TooltipButton>
+        <TooltipButton
           className={`tool-button${selectedTool === 'reframe' ? ' selected' : ''}`}
-          type="button"
+          tooltip="Reframe"
+          shortcut="R"
+          placement="above"
           aria-label="Reframe"
           aria-pressed={selectedTool === 'reframe'}
           onClick={() => setSelectedTool('reframe')}
@@ -2420,7 +2728,7 @@ function App() {
               fill="currentColor"
             />
           </svg>
-        </button>
+        </TooltipButton>
       </nav>
       )}
       {showBottomUi && (
@@ -3058,7 +3366,7 @@ function App() {
       <EditView isChatOpen={isEditChatOpen}>
         <div
           ref={imageFrameRef}
-          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
+          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${selectedTool === 'reframe' ? ' image-frame--reframe' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
           style={{ '--image-aspect-ratio': currentImageAspectRatio } as CSSProperties}
           onMouseMove={handleImageMouseMove}
           onMouseLeave={handleImageMouseLeave}
@@ -3082,20 +3390,400 @@ function App() {
               setSourceImageLoaded(true)
             }}
           />
-          {hasNoAdjustments(adjustSliderValues) ? (
-            <img
-              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
-              src={displayImageSrc}
-              alt="Mont Blanc trail landscape"
-              draggable={false}
-            />
+          {selectedTool === 'reframe' && reframeImageBounds ? (
+            <div
+              className="hero-image-reframe-container"
+              style={{
+                position: 'absolute',
+                left: reframeImageBounds.offsetX,
+                top: reframeImageBounds.offsetY,
+                width: reframeImageBounds.width,
+                height: reframeImageBounds.height,
+                transform: `rotate(${reframeRotation}deg)`,
+                transformOrigin: 'center center',
+              }}
+            >
+              {hasNoAdjustments(adjustSliderValues) ? (
+                <img
+                  className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
+                  src={displayImageSrc}
+                  alt="Mont Blanc trail landscape"
+                  draggable={false}
+                />
+              ) : (
+                <canvas
+                  ref={heroWebGLCanvasRef}
+                  className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
+                  aria-label="Mont Blanc trail landscape with adjustments"
+                />
+              )}
+            </div>
           ) : (
-            <canvas
-              ref={heroWebGLCanvasRef}
-              className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
-              aria-label="Mont Blanc trail landscape with adjustments"
-            />
+            <>
+              {hasNoAdjustments(adjustSliderValues) ? (
+                <img
+                  className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
+                  src={displayImageSrc}
+                  alt="Mont Blanc trail landscape"
+                  draggable={false}
+                />
+              ) : (
+                <canvas
+                  ref={heroWebGLCanvasRef}
+                  className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
+                  aria-label="Mont Blanc trail landscape with adjustments"
+                />
+              )}
+            </>
           )}
+          {selectedTool === 'reframe' && reframeImageBounds && (() => {
+            const pad = REFRAME_OVERLAY_PADDING_PX
+            const overlayW = reframeImageBounds.width + 2 * pad
+            const overlayH = reframeImageBounds.height + 2 * pad
+            return (
+            <div
+              className="reframe-overlay"
+              style={{
+                position: 'absolute',
+                left: reframeImageBounds.offsetX - pad,
+                top: reframeImageBounds.offsetY - pad,
+                width: overlayW,
+                height: overlayH,
+                pointerEvents: 'auto',
+                cursor: reframeRotateDragRef.current
+                  ? 'grabbing'
+                  : reframeRotateCursor
+                    ? `url(${reframeRotateCursor === 'upper-left' ? rotateCursorUpperLeft : reframeRotateCursor === 'upper-right' ? rotateCursorUpperRight : reframeRotateCursor === 'lower-left' ? rotateCursorLowerLeft : rotateCursorLowerRight}) 16 16, grab`
+                    : undefined,
+              }}
+              onMouseMove={(e) => {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                const nx = (e.clientX - rect.left) / rect.width
+                const ny = (e.clientY - rect.top) / rect.height
+                const { left, top, right, bottom } = reframeBox
+                const insideBox = nx >= left && nx <= right && ny >= top && ny <= bottom
+                if (insideBox) {
+                  setReframeRotateCursor(null)
+                  return
+                }
+                const cx = (left + right) / 2
+                const cy = (top + bottom) / 2
+                if (ny < cy) {
+                  setReframeRotateCursor(nx < cx ? 'upper-left' : 'upper-right')
+                } else {
+                  setReframeRotateCursor(nx < cx ? 'lower-left' : 'lower-right')
+                }
+              }}
+              onMouseLeave={() => setReframeRotateCursor(null)}
+              onPointerDown={(e) => {
+                const target = e.target as HTMLElement
+                const corner = target.dataset.reframeCorner as 'tl' | 'tr' | 'bl' | 'br' | undefined
+                const edge = target.dataset.reframeEdge as 'top' | 'bottom' | 'left' | 'right' | undefined
+                const isBoxInterior = target.dataset.reframeBox === 'interior'
+                if (corner) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  reframeCornerDragRef.current = {
+                    corner,
+                    startBounds: { ...reframeBox },
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                  }
+                  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                } else if (edge) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  reframeEdgeDragRef.current = {
+                    edge,
+                    startBounds: { ...reframeBox },
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                  }
+                  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                } else if (isBoxInterior) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  reframeBoxMoveRef.current = {
+                    startBounds: { ...reframeBox },
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                  }
+                  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                } else {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  const nx = (e.clientX - rect.left) / rect.width
+                  const ny = (e.clientY - rect.top) / rect.height
+                  const cx = (reframeBox.left + reframeBox.right) / 2
+                  const cy = (reframeBox.top + reframeBox.bottom) / 2
+                  const quadrant = ny < cy
+                    ? (nx < cx ? 'upper-left' : 'upper-right')
+                    : (nx < cx ? 'lower-left' : 'lower-right')
+                  reframeRotateDragRef.current = {
+                    startRotation: reframeRotation,
+                    startClientX: e.clientX,
+                    quadrant,
+                  }
+                  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                }
+              }}
+              onPointerMove={(e) => {
+                const cornerDrag = reframeCornerDragRef.current
+                const moveDrag = reframeBoxMoveRef.current
+                const edgeDrag = reframeEdgeDragRef.current
+                const rotateDrag = reframeRotateDragRef.current
+                if (!cornerDrag && !moveDrag && !edgeDrag && !rotateDrag) return
+                e.preventDefault()
+                const overlayRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                const nx = (e.clientX - overlayRect.left) / overlayRect.width
+                const ny = (e.clientY - overlayRect.top) / overlayRect.height
+                if (edgeDrag) {
+                  const minSize = 0.05
+                  setReframeBox((prev) => {
+                    if (edgeDrag.edge === 'top') {
+                      const nT = Math.min(ny, prev.bottom - minSize)
+                      return { ...prev, top: nT }
+                    }
+                    if (edgeDrag.edge === 'bottom') {
+                      const nB = Math.max(ny, prev.top + minSize)
+                      return { ...prev, bottom: nB }
+                    }
+                    if (edgeDrag.edge === 'left') {
+                      const nL = Math.min(nx, prev.right - minSize)
+                      return { ...prev, left: nL }
+                    }
+                    if (edgeDrag.edge === 'right') {
+                      const nR = Math.max(nx, prev.left + minSize)
+                      return { ...prev, right: nR }
+                    }
+                    return prev
+                  })
+                  return
+                }
+                if (rotateDrag) {
+                  const dx = e.clientX - rotateDrag.startClientX
+                  const degreesPerPx = 0.5
+                  const sign = rotateDrag.quadrant === 'lower-left' || rotateDrag.quadrant === 'lower-right' ? -1 : 1
+                  setReframeRotation(rotateDrag.startRotation + dx * degreesPerPx * sign)
+                  return
+                }
+                if (moveDrag) {
+                  const startNx = (moveDrag.startClientX - overlayRect.left) / overlayRect.width
+                  const startNy = (moveDrag.startClientY - overlayRect.top) / overlayRect.height
+                  const dx = nx - startNx
+                  const dy = ny - startNy
+                  const { startBounds } = moveDrag
+                  setReframeBox({
+                    left: startBounds.left + dx,
+                    top: startBounds.top + dy,
+                    right: startBounds.right + dx,
+                    bottom: startBounds.bottom + dy,
+                  })
+                  return
+                }
+                if (!cornerDrag) return
+                const minSize = 0.05
+                setReframeBox((prev) => {
+                  const { left, top, right, bottom } = prev
+                  if (cornerDrag.corner === 'tl') {
+                    const nL = Math.min(nx, right - minSize)
+                    const nT = Math.min(ny, bottom - minSize)
+                    return { left: nL, top: nT, right, bottom }
+                  }
+                  if (cornerDrag.corner === 'tr') {
+                    const nR = Math.max(left + minSize, nx)
+                    const nT = Math.min(ny, bottom - minSize)
+                    return { left, top: nT, right: nR, bottom }
+                  }
+                  if (cornerDrag.corner === 'bl') {
+                    const nL = Math.min(nx, right - minSize)
+                    const nB = Math.max(top + minSize, ny)
+                    return { left: nL, top, right, bottom: nB }
+                  }
+                  if (cornerDrag.corner === 'br') {
+                    const nR = Math.max(left + minSize, nx)
+                    const nB = Math.max(top + minSize, ny)
+                    return { left, top, right: nR, bottom: nB }
+                  }
+                  return prev
+                })
+              }}
+              onPointerUp={(e) => {
+                const hadDrag = reframeCornerDragRef.current || reframeBoxMoveRef.current || reframeEdgeDragRef.current || reframeRotateDragRef.current
+                if (hadDrag) {
+                  reframeCornerDragRef.current = null
+                  reframeBoxMoveRef.current = null
+                  reframeEdgeDragRef.current = null
+                  reframeRotateDragRef.current = null
+                  ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                  ensureReframePendingEdit()
+                }
+              }}
+              onPointerCancel={(e) => {
+                if (reframeCornerDragRef.current || reframeBoxMoveRef.current || reframeEdgeDragRef.current || reframeRotateDragRef.current) {
+                  reframeCornerDragRef.current = null
+                  reframeBoxMoveRef.current = null
+                  reframeEdgeDragRef.current = null
+                  reframeRotateDragRef.current = null
+                  ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                }
+              }}
+            >
+              <svg className="reframe-overlay-svg" viewBox="0 0 1 1" preserveAspectRatio="none">
+                <rect
+                  className="reframe-box-outline"
+                  x={reframeBox.left}
+                  y={reframeBox.top}
+                  width={reframeBox.right - reframeBox.left}
+                  height={reframeBox.bottom - reframeBox.top}
+                  fill="none"
+                  stroke="white"
+                  strokeWidth={3 / Math.min(overlayW, overlayH)}
+                />
+                <line
+                  className="reframe-rule-line"
+                  x1={reframeBox.left + (reframeBox.right - reframeBox.left) / 3}
+                  y1={reframeBox.top}
+                  x2={reframeBox.left + (reframeBox.right - reframeBox.left) / 3}
+                  y2={reframeBox.bottom}
+                  stroke="white"
+                  strokeWidth={0.5 / Math.min(overlayW, overlayH)}
+                />
+                <line
+                  className="reframe-rule-line"
+                  x1={reframeBox.left + (reframeBox.right - reframeBox.left) * 2 / 3}
+                  y1={reframeBox.top}
+                  x2={reframeBox.left + (reframeBox.right - reframeBox.left) * 2 / 3}
+                  y2={reframeBox.bottom}
+                  stroke="white"
+                  strokeWidth={0.5 / Math.min(overlayW, overlayH)}
+                />
+                <line
+                  className="reframe-rule-line"
+                  x1={reframeBox.left}
+                  y1={reframeBox.top + (reframeBox.bottom - reframeBox.top) / 3}
+                  x2={reframeBox.right}
+                  y2={reframeBox.top + (reframeBox.bottom - reframeBox.top) / 3}
+                  stroke="white"
+                  strokeWidth={0.5 / Math.min(overlayW, overlayH)}
+                />
+                <line
+                  className="reframe-rule-line"
+                  x1={reframeBox.left}
+                  y1={reframeBox.top + (reframeBox.bottom - reframeBox.top) * 2 / 3}
+                  x2={reframeBox.right}
+                  y2={reframeBox.top + (reframeBox.bottom - reframeBox.top) * 2 / 3}
+                  stroke="white"
+                  strokeWidth={0.5 / Math.min(overlayW, overlayH)}
+                />
+              </svg>
+              <div
+                className="reframe-box-interior"
+                data-reframe-box="interior"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW,
+                  top: reframeBox.top * overlayH,
+                  width: (reframeBox.right - reframeBox.left) * overlayW,
+                  height: (reframeBox.bottom - reframeBox.top) * overlayH,
+                }}
+              />
+              <div
+                className="reframe-edge reframe-edge-top"
+                data-reframe-edge="top"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW + 9,
+                  top: reframeBox.top * overlayH,
+                  width: (reframeBox.right - reframeBox.left) * overlayW - 18,
+                  height: 8,
+                }}
+              />
+              <div
+                className="reframe-edge reframe-edge-bottom"
+                data-reframe-edge="bottom"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW + 9,
+                  top: reframeBox.bottom * overlayH - 8,
+                  width: (reframeBox.right - reframeBox.left) * overlayW - 18,
+                  height: 8,
+                }}
+              />
+              <div
+                className="reframe-edge reframe-edge-left"
+                data-reframe-edge="left"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW,
+                  top: reframeBox.top * overlayH + 9,
+                  width: 8,
+                  height: (reframeBox.bottom - reframeBox.top) * overlayH - 18,
+                }}
+              />
+              <div
+                className="reframe-edge reframe-edge-right"
+                data-reframe-edge="right"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.right * overlayW - 8,
+                  top: reframeBox.top * overlayH + 9,
+                  width: 8,
+                  height: (reframeBox.bottom - reframeBox.top) * overlayH - 18,
+                }}
+              />
+              <div
+                className="reframe-corner reframe-corner-tl"
+                data-reframe-corner="tl"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW - 4.5,
+                  top: reframeBox.top * overlayH - 4.5,
+                  width: 9,
+                  height: 9,
+                  backgroundColor: 'white',
+                }}
+              />
+              <div
+                className="reframe-corner reframe-corner-tr"
+                data-reframe-corner="tr"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.right * overlayW - 4.5,
+                  top: reframeBox.top * overlayH - 4.5,
+                  width: 9,
+                  height: 9,
+                  backgroundColor: 'white',
+                }}
+              />
+              <div
+                className="reframe-corner reframe-corner-bl"
+                data-reframe-corner="bl"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.left * overlayW - 4.5,
+                  top: reframeBox.bottom * overlayH - 4.5,
+                  width: 9,
+                  height: 9,
+                  backgroundColor: 'white',
+                }}
+              />
+              <div
+                className="reframe-corner reframe-corner-br"
+                data-reframe-corner="br"
+                style={{
+                  position: 'absolute',
+                  left: reframeBox.right * overlayW - 4.5,
+                  top: reframeBox.bottom * overlayH - 4.5,
+                  width: 9,
+                  height: 9,
+                  backgroundColor: 'white',
+                }}
+              />
+            </div>
+            )
+          })()}
           {renderRevealTransition && (
             <div className="hero-image-reveal-layer" aria-hidden="true">
               <img
