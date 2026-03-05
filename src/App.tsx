@@ -34,8 +34,11 @@ import trancheGlyph from './assets/glyphs/tranche.svg'
 import gridGlyph from './assets/glyphs/grid.svg'
 import adjustGlyph from './assets/glyphs/adjust.svg'
 import upscaleGlyph from './assets/glyphs/upscale.svg'
+import rotateCcwGlyph from './assets/glyphs/rotate_ccw.svg'
+import rotateCwGlyph from './assets/glyphs/rotate_cw.svg'
 import isolateGlyph from './assets/glyphs/isolate.svg'
 import varyGlyph from './assets/glyphs/vary.svg'
+import magicGlyph from './assets/glyphs/magic.svg'
 import boundingBoxTl from './assets/boundingbox/tl.png'
 import boundingBoxTr from './assets/boundingbox/tr.png'
 import boundingBoxBl from './assets/boundingbox/bl.png'
@@ -54,7 +57,7 @@ import TooltipButton from './components/TooltipButton'
 import ComposerMenu, { DEFAULT_VALUES as COMPOSER_MENU_DEFAULTS, type ComposerMenuValues } from './components/ComposerMenu'
 import TakePhotoPanel from './components/TakePhotoPanel'
 
-type Tool = 'commentDraw' | 'select' | 'reframe'
+type Tool = 'commentDraw' | 'select' | 'magicFix' | 'reframe'
 type BottomLeftMenu = 'info' | 'objects' | 'adjust' | 'effects' | 'quickEdit' | null
 type AppView = 'edit' | 'gallery' | 'tranche' | 'favorites'
 type ViewRect = { left: number; top: number; width: number; height: number }
@@ -69,6 +72,7 @@ const TOOL_INSTRUCTIONS: Record<Tool, string> = {
   commentDraw:
     'Click or draw to describe the change you want. Hold option/alt to draw a box.',
   select: 'Select, move and edit objects.',
+  magicFix: 'Select an enhanced version of the image',
   reframe: 'Edit the aspect ratio and framing.',
 }
 
@@ -704,6 +708,7 @@ function App() {
   const dragStartCenterRef = useRef<{ x: number; y: number } | null>(null)
   const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
   const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
+  const [expandedObjectListName, setExpandedObjectListName] = useState<string | null>(null)
   const [activeObjectPromptName, setActiveObjectPromptName] = useState<string | null>(null)
   const [displayedObjectPromptName, setDisplayedObjectPromptName] = useState<string | null>(null)
   const [isObjectPromptClosing, setIsObjectPromptClosing] = useState(false)
@@ -740,6 +745,7 @@ function App() {
   const [hoverCornerMarkerSize, setHoverCornerMarkerSize] = useState(36)
   const bottomLeftContainerRef = useRef<HTMLDivElement | null>(null)
   const infoTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const objectRowDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const imageFrameRef = useRef<HTMLDivElement | null>(null)
   const objectPromptPanelRef = useRef<HTMLDivElement | null>(null)
   const objectPromptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -773,6 +779,8 @@ function App() {
   const [composerMenuValues, setComposerMenuValues] = useState<ComposerMenuValues>(COMPOSER_MENU_DEFAULTS)
   const [isTakePhotoPanelOpen, setIsTakePhotoPanelOpen] = useState(false)
   const bottomLeftPanelRef = useRef<HTMLElement | null>(null)
+  const objectsPanelCollapsedHeightRef = useRef<number | null>(null)
+  const expandedObjectListItemRef = useRef<HTMLDivElement | null>(null)
   const adjustContentRef = useRef<HTMLDivElement | null>(null)
 
   const REFRAME_CONTRACT_PX = 200
@@ -783,6 +791,15 @@ function App() {
     offsetX: number
     offsetY: number
   } | null>(null)
+  const isMagicFixView = selectedTool === 'magicFix'
+  const [magicFixExpanded, setMagicFixExpanded] = useState(false)
+  const [magicFixGeneratedImages, setMagicFixGeneratedImages] = useState<[string | null, string | null]>([null, null])
+  const [isMagicFixLoading, setIsMagicFixLoading] = useState(false)
+  const [magicFixError, setMagicFixError] = useState<string | null>(null)
+  const [magicFixLoadingBlurPx, setMagicFixLoadingBlurPx] = useState(8)
+  const [magicFixRevealBlurPx, setMagicFixRevealBlurPx] = useState(0)
+  const [magicFixSlideIndex, setMagicFixSlideIndex] = useState(0)
+  const magicFixMountedRef = useRef(true)
   const [reframeBox, setReframeBox] = useState<{ left: number; top: number; right: number; bottom: number }>({
     left: 0,
     top: 0,
@@ -818,12 +835,17 @@ function App() {
   const [isReframeAspectRatioMenuOpen, setIsReframeAspectRatioMenuOpen] = useState(false)
   const [reframeAspectRatioMenuAnchorRect, setReframeAspectRatioMenuAnchorRect] = useState<DOMRect | null>(null)
 
+  const hasObjectDescriptionChanges = imageObjects.some(
+    (imageObject) => objectPromptTexts[imageObject.name] !== getObjectPromptText(imageObject.name),
+  )
   const hasComposerChanges =
     composerInput.trim().length > 0 ||
     composerChanges.length > 0 ||
     commentAnnotations.length > 0 ||
     referencePendingEdits.length > 0 ||
-    reframePendingEdit != null
+    reframePendingEdit != null ||
+    infoText !== imageDescription ||
+    hasObjectDescriptionChanges
   const canRender = hasComposerChanges && !isReveRendering
   const hasRenderHistory = renderHistory.length > 0
   const isCollectionView = currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites'
@@ -869,9 +891,40 @@ function App() {
         ? [{ id: reframePendingEdit.id, text: reframePendingEdit.text, thumbnailSrc: reframePendingEdit.thumbnailSrc }]
         : []
 
-      return [...commentPendingEdits, ...referencedPendingEditsMapped, ...reframeMapped]
+      const imageDescriptionMapped =
+        infoText !== imageDescription
+          ? [{ id: 'image-description', text: 'Image description', thumbnailSrc: displayImageSrc }]
+          : []
+
+      const objectDescriptionMapped = imageObjects
+        .filter((imageObject) => objectPromptTexts[imageObject.name] !== getObjectPromptText(imageObject.name))
+        .map((imageObject) => {
+          const thumbnailSrc =
+            objectThumbnailsWithObjectName.find((t) => t.objectName === imageObject.name)?.src ?? ''
+          return {
+            id: `object-desc-${imageObject.name}`,
+            text: `${imageObject.name} description`,
+            thumbnailSrc,
+          }
+        })
+
+      return [
+        ...commentPendingEdits,
+        ...referencedPendingEditsMapped,
+        ...reframeMapped,
+        ...imageDescriptionMapped,
+        ...objectDescriptionMapped,
+      ]
     },
-    [commentAnnotations, referencePendingEdits, reframePendingEdit],
+    [
+      commentAnnotations,
+      referencePendingEdits,
+      reframePendingEdit,
+      infoText,
+      imageDescription,
+      displayImageSrc,
+      objectPromptTexts,
+    ],
   )
   const pendingEditCount = pendingEdits.length
   const isInteractionMenuOpen =
@@ -1076,21 +1129,34 @@ function App() {
     })
   }
 
+  const handleReframeReset = () => {
+    setReframePendingEdit(null)
+    setReframeRotation(0)
+    if (reframeImageBounds) {
+      const pad = REFRAME_OVERLAY_PADDING_PX
+      const ow = reframeImageBounds.width + 2 * pad
+      const oh = reframeImageBounds.height + 2 * pad
+      setReframeBox({
+        left: pad / ow,
+        top: pad / oh,
+        right: (pad + reframeImageBounds.width) / ow,
+        bottom: (pad + reframeImageBounds.height) / oh,
+      })
+    }
+  }
+
   const handleDeletePendingEdit = (pendingEditId: string) => {
     if (pendingEditId.startsWith('reframe-')) {
-      setReframePendingEdit(null)
-      setReframeRotation(0)
-      if (reframeImageBounds) {
-        const pad = REFRAME_OVERLAY_PADDING_PX
-        const ow = reframeImageBounds.width + 2 * pad
-        const oh = reframeImageBounds.height + 2 * pad
-        setReframeBox({
-          left: pad / ow,
-          top: pad / oh,
-          right: (pad + reframeImageBounds.width) / ow,
-          bottom: (pad + reframeImageBounds.height) / oh,
-        })
-      }
+      handleReframeReset()
+      return
+    }
+    if (pendingEditId === 'image-description') {
+      setInfoText(imageDescription)
+      return
+    }
+    if (pendingEditId.startsWith('object-desc-')) {
+      const objectName = pendingEditId.slice('object-desc-'.length)
+      setObjectPromptTexts((prev) => ({ ...prev, [objectName]: getObjectPromptText(objectName) }))
       return
     }
     if (pendingEditId.startsWith('reference-')) {
@@ -1130,6 +1196,21 @@ function App() {
     const triggerOrigin = (event.currentTarget.dataset.addMenuOrigin as AddMenuOrigin | undefined) ?? 'composer'
     setAddMenuOrigin(triggerOrigin)
     setAddMenuPosition(getAddMenuPosition(triggerBounds))
+    setIsAddMenuReferenceBrowserOpen(false)
+    setAddMenuSourceTab('references')
+    setAddMenuSearchQuery('')
+    setWebSearchResults([])
+    setWebSearchError(null)
+    setHasWebSearchPerformed(false)
+    setIsComposerAddMenuOpen(true)
+  }
+
+  const handleObjectRowAddClick = (objectName: string, event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    event.preventDefault()
+    setAddMenuOrigin('objectPrompt')
+    setDisplayedObjectPromptName(objectName)
+    setAddMenuPosition(getAddMenuPosition(event.currentTarget.getBoundingClientRect()))
     setIsAddMenuReferenceBrowserOpen(false)
     setAddMenuSourceTab('references')
     setAddMenuSearchQuery('')
@@ -1298,6 +1379,8 @@ function App() {
     setCommentAnnotations([])
     setReferencePendingEdits([])
     setReframePendingEdit(null)
+    setInfoText(imageDescription)
+    setObjectPromptTexts(Object.fromEntries(imageObjects.map((obj) => [obj.name, getObjectPromptText(obj.name)])))
     setIsPendingEditsMenuOpen(false)
     setActiveCommentId(null)
     setIsDrawingCommentStroke(false)
@@ -1381,6 +1464,83 @@ function App() {
     }
   }
 
+  const requestMagicFixVariants = async () => {
+    const reveApiKey = (import.meta.env.VITE_REVE_API_KEY as string | undefined)?.trim()
+    if (!reveApiKey) {
+      if (magicFixMountedRef.current) {
+        setMagicFixError('Missing VITE_REVE_API_KEY.')
+        setIsMagicFixLoading(false)
+      }
+      return
+    }
+    const currentImageSrc = displayImageSrc
+    try {
+      const referenceImageBase64 = await getReferenceImageBase64(currentImageSrc)
+      const revealEdit = async (editInstruction: string, referenceBase64: string): Promise<string> => {
+        const response = await fetch('https://api.reve.com/v1/image/edit', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${reveApiKey}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            edit_instruction: editInstruction,
+            reference_image: referenceBase64,
+            aspect_ratio: '16:9',
+            version: 'latest',
+          }),
+        })
+        const payload = (await response.json()) as {
+          image?: string
+          content_violation?: boolean
+          message?: string
+          error_code?: string
+        }
+        if (!response.ok) {
+          throw new Error(payload.message || payload.error_code || `Reve request failed (${response.status})`)
+        }
+        if (payload.content_violation) {
+          throw new Error('Reve flagged this request for content policy.')
+        }
+        if (!payload.image) {
+          throw new Error('Reve response did not include image data.')
+        }
+        return `data:image/png;base64,${payload.image}`
+      }
+      const firstSrc = await revealEdit(
+        'create an enhanced version of this image with more cinematic lighting and movement',
+        referenceImageBase64,
+      )
+      if (!magicFixMountedRef.current) return
+      setMagicFixGeneratedImages((prev) => [firstSrc, prev[1]])
+      const firstBase64 = await getReferenceImageBase64(firstSrc)
+      if (!magicFixMountedRef.current) return
+      const secondSrc = await revealEdit(
+        'create an enhanced version of this image that is over the top with moody lighting, colors and movement. You can change the layout somewhat.',
+        referenceImageBase64,
+      )
+      if (!magicFixMountedRef.current) return
+      setMagicFixGeneratedImages((prev) => [prev[0], secondSrc])
+      setIsMagicFixLoading(false)
+      setMagicFixError(null)
+      setMagicFixRevealBlurPx(24)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (magicFixMountedRef.current) {
+            setMagicFixRevealBlurPx(0)
+          }
+        })
+      })
+    } catch (error) {
+      if (magicFixMountedRef.current) {
+        setMagicFixError(error instanceof Error ? error.message : 'Magic Fix failed.')
+        setMagicFixGeneratedImages([null, null])
+        setIsMagicFixLoading(false)
+      }
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (renderRevealTimeoutRef.current !== null) {
@@ -1391,6 +1551,55 @@ function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    magicFixMountedRef.current = true
+    return () => {
+      magicFixMountedRef.current = false
+    }
+  }, [])
+
+  const prevMagicFixViewRef = useRef(false)
+  useEffect(() => {
+    if (!isMagicFixView) {
+      prevMagicFixViewRef.current = false
+      setMagicFixGeneratedImages([null, null])
+      setIsMagicFixLoading(false)
+      setMagicFixError(null)
+      setMagicFixRevealBlurPx(0)
+      setMagicFixSlideIndex(0)
+      return
+    }
+    const justOpened = !prevMagicFixViewRef.current
+    prevMagicFixViewRef.current = true
+    if (justOpened) {
+      setMagicFixGeneratedImages([null, null])
+      setMagicFixError(null)
+      setMagicFixRevealBlurPx(0)
+      setMagicFixSlideIndex(1)
+      setIsMagicFixLoading(true)
+      requestMagicFixVariants()
+    }
+  }, [isMagicFixView])
+
+  useEffect(() => {
+    if (!isMagicFixView || !isMagicFixLoading) return
+    let rafId: number
+    const start = performance.now()
+    const cycleMs = 2000
+    const minBlur = 6
+    const maxBlur = 18
+    const tick = () => {
+      if (!magicFixMountedRef.current) return
+      const elapsed = performance.now() - start
+      const t = (elapsed / cycleMs) * Math.PI * 2
+      const blur = minBlur + (maxBlur - minBlur) * (0.5 + 0.5 * Math.sin(t))
+      setMagicFixLoadingBlurPx(blur)
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [isMagicFixView, isMagicFixLoading])
 
   const toggleBottomLeftMenu = (menu: Exclude<BottomLeftMenu, null>) => {
     setActiveBottomLeftMenu((previous) => (previous === menu ? null : menu))
@@ -1781,6 +1990,15 @@ function App() {
   }, [infoText, activeBottomLeftMenu])
 
   useLayoutEffect(() => {
+    if (activeBottomLeftMenu !== 'objects' || !expandedObjectListName || !objectRowDescriptionTextareaRef.current) {
+      return
+    }
+    const ta = objectRowDescriptionTextareaRef.current
+    ta.style.height = '0px'
+    ta.style.height = `${Math.max(ta.scrollHeight, 60)}px`
+  }, [activeBottomLeftMenu, expandedObjectListName, objectPromptTexts[expandedObjectListName ?? '']])
+
+  useLayoutEffect(() => {
     if (!displayedObjectPrompt || !objectPromptTextareaRef.current) {
       return
     }
@@ -1952,6 +2170,18 @@ function App() {
 
     setReframeBox({ left, top, right, bottom })
   }, [reframeAspectRatio, reframeImageBounds, selectedTool])
+
+  useLayoutEffect(() => {
+    if (activeBottomLeftMenu === 'objects' && expandedObjectListName === null && bottomLeftPanelRef.current) {
+      objectsPanelCollapsedHeightRef.current = bottomLeftPanelRef.current.offsetHeight
+    }
+  }, [activeBottomLeftMenu, expandedObjectListName])
+
+  useLayoutEffect(() => {
+    if (activeBottomLeftMenu === 'objects' && expandedObjectListName != null && expandedObjectListItemRef.current) {
+      expandedObjectListItemRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [activeBottomLeftMenu, expandedObjectListName])
 
   useLayoutEffect(() => {
     if (!displayedObjectPrompt || !imageFrameRef.current || !objectPromptPanelRef.current) {
@@ -2410,24 +2640,23 @@ function App() {
         return
       }
 
-      // Tool shortcuts: always work (same as clicking the button). Blur to exit any focused text field.
+      // Tool shortcuts: skip when typing in a text field so keys work normally.
+      if (isTyping) return
+
       if (event.key === 'c' || event.key === 'C') {
         event.preventDefault()
-        if (activeEl instanceof HTMLElement) activeEl.blur()
         setSelectedTool('commentDraw')
         return
       }
 
       if (event.key === 's' || event.key === 'S') {
         event.preventDefault()
-        if (activeEl instanceof HTMLElement) activeEl.blur()
         setSelectedTool('select')
         return
       }
 
       if (event.key === 'r' || event.key === 'R') {
         event.preventDefault()
-        if (activeEl instanceof HTMLElement) activeEl.blur()
         setSelectedTool('reframe')
         return
       }
@@ -2625,8 +2854,8 @@ function App() {
       )}
       {showBottomUi && (
       <p
-        className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}`}
-        style={{ bottom: `${controlsBottomPx + 50}px` }}
+        className={`tool-instruction${toolInstructionFadedOut ? ' tool-instruction--faded' : ''}${selectedTool === 'reframe' ? ' tool-instruction--reframe' : ''}`}
+        style={{ bottom: `${controlsBottomPx + (selectedTool === 'reframe' ? 100 : 50)}px` }}
         aria-live="polite"
       >
         {topInstructionText}
@@ -2646,7 +2875,7 @@ function App() {
             setReframeAspectRatioMenuAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect())
           }}
         >
-          Aspect Ratio: {reframeAspectRatio}
+          {reframeAspectRatio}
         </button>
         <StandardMenu
           isOpen={isReframeAspectRatioMenuOpen}
@@ -2664,13 +2893,33 @@ function App() {
           ariaLabel="Aspect ratio"
           placement="above"
         />
-        <button className="text-action-button" type="button">
-          Rotate Left
+        <button
+          className="text-action-button"
+          type="button"
+          aria-label="Rotate left"
+          onClick={() => {
+            setReframeRotation((prev) => prev - 90)
+            ensureReframePendingEdit()
+          }}
+        >
+          <img className="glyph-icon reframe-rotate-glyph" src={rotateCcwGlyph} alt="" aria-hidden="true" />
         </button>
-        <button className="text-action-button" type="button">
-          Rotate Right
+        <button
+          className="text-action-button"
+          type="button"
+          aria-label="Rotate right"
+          onClick={() => {
+            setReframeRotation((prev) => prev + 90)
+            ensureReframePendingEdit()
+          }}
+        >
+          <img className="glyph-icon reframe-rotate-glyph" src={rotateCwGlyph} alt="" aria-hidden="true" />
         </button>
-        <button className="text-action-button" type="button">
+        <button
+          className="text-action-button"
+          type="button"
+          onClick={handleReframeReset}
+        >
           Reset
         </button>
       </nav>
@@ -2714,6 +2963,23 @@ function App() {
           </svg>
         </TooltipButton>
         <TooltipButton
+          className={`tool-button${selectedTool === 'magicFix' ? ' selected' : ''}`}
+          tooltip="Magic Fix"
+          placement="above"
+          aria-label="Magic Fix"
+          aria-pressed={selectedTool === 'magicFix'}
+          onClick={() => {
+            setSelectedTool('magicFix')
+            setMagicFixSlideIndex(1)
+            setMagicFixExpanded(false)
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => setMagicFixExpanded(true))
+            })
+          }}
+        >
+          <img className="tool-glyph-svg tool-glyph-magic" src={magicGlyph} alt="" aria-hidden="true" />
+        </TooltipButton>
+        <TooltipButton
           className={`tool-button${selectedTool === 'reframe' ? ' selected' : ''}`}
           tooltip="Reframe"
           shortcut="R"
@@ -2740,14 +3006,19 @@ function App() {
               activeBottomLeftMenu === 'info'
                 ? ' bottom-left-panel--info'
                 : activeBottomLeftMenu === 'objects'
-                  ? ' bottom-left-panel--objects'
+                  ? ` bottom-left-panel--objects${expandedObjectListName != null ? ' bottom-left-panel--objects-scrolling' : ''}`
                   : activeBottomLeftMenu === 'effects'
                     ? ' bottom-left-panel--effects'
                     : activeBottomLeftMenu === 'adjust'
                       ? ` bottom-left-panel--adjust${adjustSliderDraggingId != null ? ' bottom-left-panel--adjust-dragging' : ''}`
                       : ''
             }`}
-            style={{ bottom: `${controlsBottomPx + 45}px` }}
+            style={{
+              bottom: `${controlsBottomPx + 45}px`,
+              ...(activeBottomLeftMenu === 'objects' && expandedObjectListName != null
+                ? { maxHeight: objectsPanelCollapsedHeightRef.current ?? 320 }
+                : {}),
+            }}
             aria-label={`${activeBottomLeftMenu} menu`}
           >
             {activeBottomLeftMenu === 'info' && (
@@ -2772,21 +3043,68 @@ function App() {
                   </button>
                 </div>
                 <div className="objects-list">
-                {objectThumbnailsWithObjectName.map((objectThumbnail) => (
-                  <button
-                    key={objectThumbnail.name}
-                    className="object-row"
-                    type="button"
-                    onMouseEnter={() => setHoveredObjectListName(objectThumbnail.objectName)}
-                    onMouseLeave={() => setHoveredObjectListName(null)}
-                  >
-                    <img className="object-thumb" src={objectThumbnail.src} alt={objectThumbnail.name} />
-                    <span className="object-name">{objectThumbnail.name}</span>
-                    <span className="object-row-trash-wrap" aria-hidden="true">
-                      <img className="object-row-trash" src={trashGlyph} alt="Delete" aria-hidden="true" />
-                    </span>
-                  </button>
-                ))}
+                {objectThumbnailsWithObjectName.map((objectThumbnail) => {
+                  const objectName = objectThumbnail.objectName
+                  const isExpanded = objectName != null && expandedObjectListName === objectName
+                  return (
+                    <div
+                      key={objectThumbnail.name}
+                      className="object-list-item"
+                      ref={isExpanded ? expandedObjectListItemRef : undefined}
+                    >
+                      <button
+                        className={`object-row${isExpanded ? ' object-row--expanded' : ''}`}
+                        type="button"
+                        onMouseEnter={() => setHoveredObjectListName(objectName)}
+                        onMouseLeave={() => setHoveredObjectListName(null)}
+                        onClick={() => {
+                          if (objectName == null) return
+                          setExpandedObjectListName((prev) => (prev === objectName ? null : objectName))
+                        }}
+                      >
+                        <img className="object-thumb" src={objectThumbnail.src} alt={objectThumbnail.name} />
+                        <span className="object-name">{objectThumbnail.name}</span>
+                        <span className="object-row-glyphs">
+                          {isExpanded && objectName != null && (
+                            <button
+                              type="button"
+                              className="object-row-plus-wrap"
+                              aria-label="Add"
+                              onClick={(e) => handleObjectRowAddClick(objectName, e)}
+                              onPointerDown={(e) => e.stopPropagation()}
+                            >
+                              <img className="object-row-plus" src={addGlyph} alt="" aria-hidden="true" />
+                            </button>
+                          )}
+                          <span
+                            className="object-row-trash-wrap"
+                            aria-hidden="true"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                          >
+                            <img className="object-row-trash" src={trashGlyph} alt="Delete" aria-hidden="true" />
+                          </span>
+                        </span>
+                      </button>
+                      {isExpanded && objectName != null && (
+                        <div className="object-row-description">
+                          <textarea
+                            ref={objectRowDescriptionTextareaRef}
+                            className="menu-description-input object-row-description-input"
+                            value={objectPromptTexts[objectName] ?? getObjectPromptText(objectName)}
+                            onChange={(e) =>
+                              setObjectPromptTexts((prev) => ({ ...prev, [objectName]: e.target.value }))
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            placeholder={`Describe ${objectThumbnail.name}…`}
+                            aria-label={`Description for ${objectThumbnail.name}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
                 </div>
               </>
             )}
@@ -3366,7 +3684,7 @@ function App() {
       <EditView isChatOpen={isEditChatOpen}>
         <div
           ref={imageFrameRef}
-          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${selectedTool === 'reframe' ? ' image-frame--reframe' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
+          className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${selectedTool === 'reframe' && !isMagicFixView ? ' image-frame--reframe' : ''}${isMagicFixView ? ' image-frame--magic-fix' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
           style={{ '--image-aspect-ratio': currentImageAspectRatio } as CSSProperties}
           onMouseMove={handleImageMouseMove}
           onMouseLeave={handleImageMouseLeave}
@@ -3390,7 +3708,160 @@ function App() {
               setSourceImageLoaded(true)
             }}
           />
-          {selectedTool === 'reframe' && reframeImageBounds ? (
+          {isMagicFixView ? (
+            <div className="magic-fix-view" aria-label="Magic Fix variants">
+              {magicFixError != null && (
+                <p className="magic-fix-error" role="alert" style={{ position: 'absolute', bottom: 72, left: '50%', transform: 'translateX(-50%)', margin: 0, fontSize: 12, color: '#cc6666', zIndex: 10, pointerEvents: 'none' }}>
+                  {magicFixError}
+                </p>
+              )}
+              <div className="magic-fix-content">
+                <div
+                  className="magic-fix-display"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {magicFixSlideIndex === 0 ? (
+                    hasNoAdjustments(adjustSliderValues) ? (
+                      <img
+                        src={displayImageSrc}
+                        alt="Original"
+                        className="magic-fix-main-image"
+                        draggable={false}
+                      />
+                    ) : (
+                      <canvas
+                        ref={heroWebGLCanvasRef}
+                        className="magic-fix-main-image"
+                        aria-label="Original"
+                      />
+                    )
+                  ) : magicFixSlideIndex === 1 ? (
+                    magicFixGeneratedImages[0] != null ? (
+                      <img
+                        key="enhanced-1-img"
+                        src={magicFixGeneratedImages[0]}
+                        alt="Enhanced 1"
+                        className="magic-fix-main-image magic-fix-main-image--reveal magic-fix-main-image--selectable"
+                        style={{ filter: `blur(${magicFixRevealBlurPx}px)`, cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const src = magicFixGeneratedImages[0]!
+                          setDisplayImageSrc(src)
+                          setSourceImageLoaded(false)
+                          setRenderHistory((prev) => {
+                            const ts = Date.now()
+                            const item = { id: `${ts}-magic-1`, src }
+                            if (prev.length === 0) {
+                              return [{ id: `${ts}-base`, src: displayImageSrc }, item]
+                            }
+                            if (prev.some((h) => h.src === src)) return prev
+                            return [...prev, item]
+                          })
+                          setSelectedTool('select')
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={displayImageSrc}
+                        alt=""
+                        className="magic-fix-main-image magic-fix-main-image--loading"
+                        style={{ filter: `blur(${magicFixLoadingBlurPx}px)` }}
+                      />
+                    )
+                  ) : (
+                    magicFixGeneratedImages[1] != null ? (
+                      <img
+                        key="enhanced-2-img"
+                        src={magicFixGeneratedImages[1]}
+                        alt="Enhanced 2"
+                        className="magic-fix-main-image magic-fix-main-image--reveal magic-fix-main-image--selectable"
+                        style={{ filter: `blur(${magicFixRevealBlurPx}px)`, cursor: 'pointer' }}
+                        onError={() => setMagicFixGeneratedImages((prev) => [prev[0], null])}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const src = magicFixGeneratedImages[1]!
+                          setDisplayImageSrc(src)
+                          setSourceImageLoaded(false)
+                          setRenderHistory((prev) => {
+                            const ts = Date.now()
+                            const item = { id: `${ts}-magic-2`, src }
+                            if (prev.length === 0) {
+                              return [{ id: `${ts}-base`, src: displayImageSrc }, item]
+                            }
+                            if (prev.some((h) => h.src === src)) return prev
+                            return [...prev, item]
+                          })
+                          setSelectedTool('select')
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={displayImageSrc}
+                        alt=""
+                        className="magic-fix-main-image magic-fix-main-image--loading"
+                        style={{ filter: `blur(${magicFixLoadingBlurPx}px)` }}
+                      />
+                    )
+                  )}
+                </div>
+                <div
+                  className="magic-fix-controls"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="magic-fix-thumbnails">
+                    <div className={`magic-fix-thumb-wrapper${magicFixSlideIndex === 0 ? ' magic-fix-thumb-wrapper--active' : ''}`}>
+                      <button
+                        type="button"
+                        aria-label="Original"
+                        className={`magic-fix-thumb${magicFixSlideIndex === 0 ? ' magic-fix-thumb--active' : ''}`}
+                        style={{ '--thumb-aspect-ratio': currentImageAspectRatio } as CSSProperties}
+                        onClick={() => setMagicFixSlideIndex(0)}
+                      >
+                        <img src={displayImageSrc} alt="" draggable={false} />
+                      </button>
+                      <span className="magic-fix-thumb-label">Original</span>
+                    </div>
+                    <div className={`magic-fix-thumb-wrapper${magicFixSlideIndex === 1 ? ' magic-fix-thumb-wrapper--active' : ''}`}>
+                      <button
+                        type="button"
+                        aria-label="Enhanced"
+                        className={`magic-fix-thumb${magicFixSlideIndex === 1 ? ' magic-fix-thumb--active' : ''}`}
+                        style={{ '--thumb-aspect-ratio': currentImageAspectRatio } as CSSProperties}
+                        onClick={() => setMagicFixSlideIndex(1)}
+                      >
+                        <img
+                          src={magicFixGeneratedImages[0] ?? displayImageSrc}
+                          alt=""
+                          style={magicFixGeneratedImages[0] == null ? { filter: `blur(${magicFixLoadingBlurPx}px)` } : undefined}
+                          draggable={false}
+                        />
+                      </button>
+                      <span className="magic-fix-thumb-label">Enhanced</span>
+                    </div>
+                    <div className={`magic-fix-thumb-wrapper${magicFixSlideIndex === 2 ? ' magic-fix-thumb-wrapper--active' : ''}`}>
+                      <button
+                        type="button"
+                        aria-label="Enhanced 2x"
+                        className={`magic-fix-thumb${magicFixSlideIndex === 2 ? ' magic-fix-thumb--active' : ''}`}
+                        style={{ '--thumb-aspect-ratio': currentImageAspectRatio } as CSSProperties}
+                        onClick={() => setMagicFixSlideIndex(2)}
+                      >
+                        <img
+                          src={magicFixGeneratedImages[1] ?? displayImageSrc}
+                          alt=""
+                          style={magicFixGeneratedImages[1] == null ? { filter: `blur(${magicFixLoadingBlurPx}px)` } : undefined}
+                          draggable={false}
+                        />
+                      </button>
+                      <span className="magic-fix-thumb-label">Enhanced 2x</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : selectedTool === 'reframe' && reframeImageBounds ? (
             <div
               className="hero-image-reframe-container"
               style={{
@@ -3436,7 +3907,7 @@ function App() {
               )}
             </>
           )}
-          {selectedTool === 'reframe' && reframeImageBounds && (() => {
+          {selectedTool === 'reframe' && reframeImageBounds && !isMagicFixView && (() => {
             const pad = REFRAME_OVERLAY_PADDING_PX
             const overlayW = reframeImageBounds.width + 2 * pad
             const overlayH = reframeImageBounds.height + 2 * pad
@@ -3559,13 +4030,15 @@ function App() {
                     }
                     return prev
                   })
+                  setReframeAspectRatio('Custom')
                   return
                 }
                 if (rotateDrag) {
                   const dx = e.clientX - rotateDrag.startClientX
                   const degreesPerPx = 0.5
+                  const precisionMultiplier = e.shiftKey ? 0.1 : 1
                   const sign = rotateDrag.quadrant === 'lower-left' || rotateDrag.quadrant === 'lower-right' ? -1 : 1
-                  setReframeRotation(rotateDrag.startRotation + dx * degreesPerPx * sign)
+                  setReframeRotation(rotateDrag.startRotation + dx * degreesPerPx * sign * precisionMultiplier)
                   return
                 }
                 if (moveDrag) {
@@ -3580,43 +4053,92 @@ function App() {
                     right: startBounds.right + dx,
                     bottom: startBounds.bottom + dy,
                   })
+                  setReframeAspectRatio('Custom')
                   return
                 }
                 if (!cornerDrag) return
                 const minSize = 0.05
+                const lockAspect = e.shiftKey && reframeAspectRatio !== 'Custom'
+                let ratioK: number | null = null
+                if (lockAspect) {
+                  const parseAspectRatio = (s: string): number | null => {
+                    const m = s.match(/^(\d+):(\d+)$/)
+                    if (!m) return null
+                    return parseInt(m[1], 10) / parseInt(m[2], 10)
+                  }
+                  const R = parseAspectRatio(reframeAspectRatio)
+                  if (R != null && R > 0) ratioK = R * overlayH / overlayW
+                }
                 setReframeBox((prev) => {
                   const { left, top, right, bottom } = prev
                   if (cornerDrag.corner === 'tl') {
+                    if (ratioK != null) {
+                      const nT = Math.max(0, Math.min(ny, bottom - minSize))
+                      const nL = right - ratioK * (bottom - nT)
+                      const nLClamp = Math.max(0, Math.min(right - minSize, nL))
+                      const nTFromL = bottom - (right - nLClamp) / ratioK
+                      const nTClamp = Math.max(0, Math.min(bottom - minSize, nTFromL))
+                      return { left: nLClamp, top: nTClamp, right, bottom }
+                    }
                     const nL = Math.min(nx, right - minSize)
                     const nT = Math.min(ny, bottom - minSize)
                     return { left: nL, top: nT, right, bottom }
                   }
                   if (cornerDrag.corner === 'tr') {
+                    if (ratioK != null) {
+                      const nT = Math.max(0, Math.min(ny, bottom - minSize))
+                      const nR = left + ratioK * (bottom - nT)
+                      const nRClamp = Math.max(left + minSize, Math.min(1, nR))
+                      const nTFromR = bottom - (nRClamp - left) / ratioK
+                      const nTClamp = Math.max(0, Math.min(bottom - minSize, nTFromR))
+                      return { left, top: nTClamp, right: nRClamp, bottom }
+                    }
                     const nR = Math.max(left + minSize, nx)
                     const nT = Math.min(ny, bottom - minSize)
                     return { left, top: nT, right: nR, bottom }
                   }
                   if (cornerDrag.corner === 'bl') {
+                    if (ratioK != null) {
+                      const nB = Math.max(top + minSize, Math.min(ny, 1))
+                      const nL = right - ratioK * (nB - top)
+                      const nLClamp = Math.max(0, Math.min(right - minSize, nL))
+                      const nBFromL = top + (right - nLClamp) / ratioK
+                      const nBClamp = Math.max(top + minSize, Math.min(1, nBFromL))
+                      return { left: nLClamp, top, right, bottom: nBClamp }
+                    }
                     const nL = Math.min(nx, right - minSize)
                     const nB = Math.max(top + minSize, ny)
                     return { left: nL, top, right, bottom: nB }
                   }
                   if (cornerDrag.corner === 'br') {
+                    if (ratioK != null) {
+                      const nB = Math.max(top + minSize, Math.min(ny, 1))
+                      const nR = left + ratioK * (nB - top)
+                      const nRClamp = Math.max(left + minSize, Math.min(1, nR))
+                      const nBFromR = top + (nRClamp - left) / ratioK
+                      const nBClamp = Math.max(top + minSize, Math.min(1, nBFromR))
+                      return { left, top, right: nRClamp, bottom: nBClamp }
+                    }
                     const nR = Math.max(left + minSize, nx)
                     const nB = Math.max(top + minSize, ny)
                     return { left, top, right: nR, bottom: nB }
                   }
                   return prev
                 })
+                if (!lockAspect) setReframeAspectRatio('Custom')
               }}
               onPointerUp={(e) => {
                 const hadDrag = reframeCornerDragRef.current || reframeBoxMoveRef.current || reframeEdgeDragRef.current || reframeRotateDragRef.current
+                const wasCornerDrag = reframeCornerDragRef.current != null
                 if (hadDrag) {
                   reframeCornerDragRef.current = null
                   reframeBoxMoveRef.current = null
                   reframeEdgeDragRef.current = null
                   reframeRotateDragRef.current = null
                   ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                  if (wasCornerDrag && !e.shiftKey) {
+                    setReframeAspectRatio('Custom')
+                  }
                   ensureReframePendingEdit()
                 }
               }}
@@ -3866,7 +4388,7 @@ function App() {
               )
             }
             )()}
-            {transientHighlightedObject && (!selectedImageObject || transientHighlightedObject.name !== selectedImageObject.name) && (() => {
+            {transientHighlightedObject && selectedTool !== 'reframe' && (!selectedImageObject || transientHighlightedObject.name !== selectedImageObject.name) && (() => {
               const displayOptions = {
                 positionOverrides: objectPositionOverrides,
                 draggedObjectName,

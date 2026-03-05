@@ -157,6 +157,10 @@
   display: block;
 }
 
+.reframe-rotate-glyph {
+  filter: invert(1);
+}
+
 .gallery-header-control {
   height: 40px;
   display: inline-flex;
@@ -329,8 +333,14 @@
   border-right: 1px solid #333333;
 }
 
-.tool-button[aria-label='Reframe'] {
+.tool-button[aria-label='Magic Fix'] {
   order: 3;
+  border-left: 0;
+  border-right: 1px solid #333333;
+}
+
+.tool-button[aria-label='Reframe'] {
+  order: 4;
   border-radius: 0 10px 10px 0;
   border-left: 0;
 }
@@ -375,6 +385,15 @@
 .tool-glyph-reframe {
   width: 18px;
   height: 22px;
+}
+
+.tool-glyph-magic {
+  width: 18px;
+  height: 18px;
+}
+
+.tool-button.selected .tool-glyph-magic {
+  filter: invert(1);
 }
 
 .bottom-left-actions {
@@ -487,7 +506,7 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   padding: 10px;
-  z-index: 20;
+  z-index: 25;
   overflow: auto;
 }
 
@@ -505,6 +524,16 @@
   padding: 10px;
   max-height: none;
   overflow: visible;
+}
+.bottom-left-panel--objects-scrolling {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.bottom-left-panel--objects-scrolling::-webkit-scrollbar {
+  display: none;
 }
 
 .bottom-left-panel--adjust {
@@ -800,6 +829,24 @@
   gap: 0;
 }
 
+.object-list-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.object-row-description {
+  padding: 0 5px 10px 5px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.object-row-description-input {
+  width: 100%;
+  min-height: 80px;
+  box-sizing: border-box;
+  overflow-y: hidden;
+  resize: none;
+}
+
 .object-row {
   width: 100%;
   height: 40px;
@@ -819,6 +866,41 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+.object-row--expanded {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.object-row-glyphs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.object-row-plus-wrap {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: #cccccc;
+}
+.object-row-plus-wrap:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+.object-row-plus {
+  width: 15px;
+  height: 15px;
+  display: block;
+  filter: invert(1);
+}
+
 .object-row-trash-wrap {
   width: 30px;
   height: 30px;
@@ -829,7 +911,8 @@
   border-radius: 15px;
   opacity: 0;
 }
-.object-row:hover .object-row-trash-wrap {
+.object-row:hover .object-row-trash-wrap,
+.object-row--expanded .object-row-trash-wrap {
   opacity: 1;
 }
 .object-row-trash-wrap:hover {
@@ -840,9 +923,9 @@
   width: 14px;
   height: 16px;
   opacity: 0;
-  filter: invert(1);
 }
-.object-row:hover .object-row-trash {
+.object-row:hover .object-row-trash,
+.object-row--expanded .object-row-trash {
   opacity: 1;
 }
 
@@ -2702,6 +2785,15 @@
   pointer-events: none;
 }
 
+.image-frame--magic-fix .comment-layer,
+.image-frame--magic-fix .object-overlays {
+  pointer-events: none;
+}
+
+.image-frame--magic-fix {
+  cursor: pointer;
+}
+
 .hero-image {
   display: block;
   width: 100%;
@@ -2722,6 +2814,121 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.magic-fix-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  z-index: 25;
+  pointer-events: auto;
+}
+
+.magic-fix-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.magic-fix-display {
+  width: 80%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.magic-fix-view .magic-fix-main-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.magic-fix-view .magic-fix-main-image--reveal {
+  transition: filter 0.6s ease-out;
+}
+
+.magic-fix-view .magic-fix-main-image--loading {
+  transition: none;
+}
+
+.magic-fix-controls {
+  flex: 0 0 auto;
+  width: 80%;
+  padding: 10px 0 12px;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.magic-fix-thumbnails {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+}
+
+
+.magic-fix-thumb {
+  flex: 0 0 auto;
+  height: 48px;
+  aspect-ratio: var(--thumb-aspect-ratio, 16 / 9);
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+  outline: none;
+}
+
+.magic-fix-thumb:hover {
+  opacity: 0.75;
+}
+
+.magic-fix-thumb--active {
+  opacity: 1;
+}
+
+.magic-fix-thumb img,
+.magic-fix-thumb canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.magic-fix-thumb-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.magic-fix-thumb-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.magic-fix-thumb-wrapper:hover .magic-fix-thumb-label,
+.magic-fix-thumb-wrapper--active .magic-fix-thumb-label {
+  opacity: 1;
 }
 
 .reframe-overlay {
@@ -3160,12 +3367,12 @@
 .object-prompt-glyphs {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 0px;
 }
 
 .object-prompt-glyph-button {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 15px;
   background: transparent;
