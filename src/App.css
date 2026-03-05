@@ -490,6 +490,11 @@
   opacity: 1;
 }
 
+.text-action-button:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
 .chevron-glyph {
   width: 9px;
   height: 5px;
@@ -1024,6 +1029,11 @@
   align-items: flex-end;
   gap: 10px;
   z-index: 30;
+}
+
+.composer--disabled {
+  opacity: 0.25;
+  pointer-events: none;
 }
 
 .composer-main-row {
