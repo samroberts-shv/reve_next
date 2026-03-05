@@ -792,7 +792,7 @@ function App() {
     offsetY: number
   } | null>(null)
   const isMagicFixView = selectedTool === 'magicFix'
-  const [magicFixExpanded, setMagicFixExpanded] = useState(false)
+  const [_magicFixExpanded, setMagicFixExpanded] = useState(false)
   const [magicFixGeneratedImages, setMagicFixGeneratedImages] = useState<[string | null, string | null]>([null, null])
   const [isMagicFixLoading, setIsMagicFixLoading] = useState(false)
   const [magicFixError, setMagicFixError] = useState<string | null>(null)
@@ -1514,7 +1514,7 @@ function App() {
       )
       if (!magicFixMountedRef.current) return
       setMagicFixGeneratedImages((prev) => [firstSrc, prev[1]])
-      const firstBase64 = await getReferenceImageBase64(firstSrc)
+      await getReferenceImageBase64(firstSrc)
       if (!magicFixMountedRef.current) return
       const secondSrc = await revealEdit(
         'create an enhanced version of this image that is over the top with moody lighting, colors and movement. You can change the layout somewhat.',
