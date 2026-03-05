@@ -3733,12 +3733,22 @@ function App() {
                         alt="Original"
                         className="magic-fix-main-image"
                         draggable={false}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedTool('select')
+                        }}
                       />
                     ) : (
                       <canvas
                         ref={heroWebGLCanvasRef}
                         className="magic-fix-main-image"
                         aria-label="Original"
+                        style={{ cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedTool('select')
+                        }}
                       />
                     )
                   ) : magicFixSlideIndex === 1 ? (
