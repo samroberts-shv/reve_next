@@ -3717,7 +3717,7 @@ function App() {
       )}
       {showBottomUi && (
         <section
-          className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}`}
+          className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}${currentView === 'edit' && isEditChatOpen ? ' render-filmstrip--chat-inset' : ''}`}
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
           aria-label="Gallery filmstrip"
         >
@@ -3741,7 +3741,7 @@ function App() {
       )}
       {showBottomUi && (
         <div
-          className={`filmstrip-trigger${filmstripVisible ? ' filmstrip-trigger--active' : ''}`}
+          className={`filmstrip-trigger${filmstripVisible ? ' filmstrip-trigger--active' : ''}${currentView === 'edit' && isEditChatOpen ? ' filmstrip-trigger--chat-inset' : ''}`}
           onClick={() => setFilmstripVisible((prev) => !prev)}
         />
       )}
