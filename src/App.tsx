@@ -844,6 +844,7 @@ function App() {
     quadrant: 'upper-left' | 'upper-right' | 'lower-left' | 'lower-right'
   } | null>(null)
   const reframeBoxInitializedRef = useRef(false)
+  const filmstripRef = useRef<HTMLElement | null>(null)
   const [reframeAspectRatio, setReframeAspectRatio] = useState('16:9')
   const [isReframeAspectRatioMenuOpen, setIsReframeAspectRatioMenuOpen] = useState(false)
   const [reframeAspectRatioMenuAnchorRect, setReframeAspectRatioMenuAnchorRect] = useState<DOMRect | null>(null)
@@ -2566,6 +2567,34 @@ function App() {
   }, [showFilmstrip, displayImageSrc])
 
   useEffect(() => {
+    const el = filmstripRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      el.scrollLeft += e.deltaY
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', handleWheel)
+    }
+  }, [showFilmstrip])
+
+  useEffect(() => {
+    if (showFilmstrip && filmstripRef.current) {
+      const activeItem = filmstripRef.current.querySelector('.render-filmstrip-item.active')
+      if (activeItem) {
+        activeItem.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }, [showFilmstrip, displayImageSrc])
+
+  useEffect(() => {
+    if (isReveRendering && showFilmstrip && filmstripRef.current) {
+      filmstripRef.current.scrollLeft = filmstripRef.current.scrollWidth
+    }
+  }, [isReveRendering, showFilmstrip])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
@@ -3719,16 +3748,18 @@ function App() {
       )}
       {showBottomUi && (
         <section
+          ref={filmstripRef}
           className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}${currentView === 'edit' && isEditChatOpen ? ' render-filmstrip--chat-inset' : ''}`}
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
           aria-label="Gallery filmstrip"
         >
           <div className="render-filmstrip-track">
             {allGalleryImageSrcs.map((imageSrc, index) => (
-              <button
+              <TooltipButton
                 key={index}
-                className={`render-filmstrip-item${imageSrc === displayImageSrc ? ' active' : ''}`}
-                type="button"
+                className={`render-filmstrip-item${imageSrc === displayImageSrc && !isReveRendering ? ' active' : ''}`}
+                tooltip={resolveImageName(imageSrc, index)}
+                placement="above"
                 aria-label={resolveImageName(imageSrc, index)}
                 onClick={() => {
                   setDisplayImageSrc(imageSrc)
@@ -3736,8 +3767,18 @@ function App() {
                 }}
               >
                 <img className="render-filmstrip-image" src={resolveCollectionThumbnailSrc(imageSrc)} alt="" aria-hidden="true" />
-              </button>
+              </TooltipButton>
             ))}
+            {isReveRendering && (
+              <div className="render-filmstrip-item render-filmstrip-item--loading active">
+                <img
+                  className="render-filmstrip-image render-filmstrip-image--loading"
+                  src={resolveCollectionThumbnailSrc(displayImageSrc)}
+                  alt=""
+                  aria-hidden="true"
+                />
+              </div>
+            )}
           </div>
         </section>
       )}

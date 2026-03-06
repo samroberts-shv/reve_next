@@ -1107,7 +1107,9 @@
   height: 50px;
   display: block;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
   padding: 0 10px;
   box-sizing: border-box;
   z-index: 30;
@@ -1115,6 +1117,10 @@
   opacity: 0;
   transition: transform 250ms ease, opacity 250ms ease;
   pointer-events: none;
+}
+
+.render-filmstrip::-webkit-scrollbar {
+  display: none;
 }
 
 .render-filmstrip--visible {
@@ -1130,9 +1136,13 @@
 .render-filmstrip-track {
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 4px;
-  width: 100%;
+  justify-content: flex-start;
+  gap: 5px;
+  width: max-content;
+}
+
+.render-filmstrip-track .tooltip-button-wrap {
+  flex: none;
 }
 
 .render-filmstrip-item {
@@ -1140,21 +1150,32 @@
   border: 0;
   padding: 0;
   margin: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
-  display: inline-flex;
+  display: block;
   cursor: pointer;
-  flex: 1 1 0;
-  min-width: 0;
+  width: auto;
   overflow: hidden;
   position: relative;
 }
 
 .render-filmstrip-image {
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: 50px;
+  width: auto;
+  border-radius: 5px;
+}
+
+.render-filmstrip-item--loading {
+  opacity: 0.8;
+  height: 50px;
+  border-radius: 5px;
+  overflow: hidden;
+  flex: none;
+}
+
+.render-filmstrip-image--loading {
+  animation: hero-image-rendering-blur 4s linear infinite;
 }
 
 .render-filmstrip-item.active {
@@ -1165,7 +1186,7 @@
   position: absolute;
   inset: 0;
   border: 3px solid #ffffff;
-  border-radius: 6px;
+  border-radius: 5px;
   box-sizing: border-box;
   pointer-events: none;
 }
