@@ -2580,6 +2580,15 @@ function App() {
   }, [showFilmstrip])
 
   useEffect(() => {
+    if (showFilmstrip && filmstripRef.current) {
+      const activeItem = filmstripRef.current.querySelector('.render-filmstrip-item.active')
+      if (activeItem) {
+        activeItem.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }, [showFilmstrip, displayImageSrc])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
