@@ -3757,7 +3757,7 @@ function App() {
             {allGalleryImageSrcs.map((imageSrc, index) => (
               <TooltipButton
                 key={index}
-                className={`render-filmstrip-item${imageSrc === displayImageSrc ? ' active' : ''}`}
+                className={`render-filmstrip-item${imageSrc === displayImageSrc && !isReveRendering ? ' active' : ''}`}
                 tooltip={resolveImageName(imageSrc, index)}
                 placement="above"
                 aria-label={resolveImageName(imageSrc, index)}
