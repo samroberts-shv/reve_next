@@ -3,6 +3,8 @@ import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
 
+type DynamicChatEntry = { timestamp: string; user: string; reve: string; imageSrcs: string[] }
+
 type GalleryViewProps = {
   fixedLastImageSrc: string
   placeholderImageSrcs: string[]
@@ -19,6 +21,7 @@ type GalleryViewProps = {
   isImageHidden?: boolean
   favoritedImageSrcs: string[]
   setFavoritedImageSrcs: Dispatch<SetStateAction<string[]>>
+  dynamicChatEntries?: DynamicChatEntry[]
 }
 
 const galleryTileMinSizePx = 200
@@ -70,6 +73,7 @@ function GalleryView({
   isImageHidden = false,
   favoritedImageSrcs,
   setFavoritedImageSrcs,
+  dynamicChatEntries = [],
 }: GalleryViewProps) {
   const availableWidth = Math.max(galleryTileMinSizePx, window.innerWidth - galleryChatColumnWidthPx - galleryTileGapPx * 2)
   const minimumColumnsForMaxSize = Math.max(
@@ -248,6 +252,51 @@ function GalleryView({
                         <img className="collection-chat-thumb-image" src={resolveThumbnailSrc(thumbnail.src)} alt="" aria-hidden="true" />
                       </button>
                     ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          ))}
+          {dynamicChatEntries.map((entry, index) => (
+            <section className="collection-chat-entry" key={`gallery-chat-dynamic-${index}`}>
+              <div className="collection-chat-turn collection-chat-turn--user">
+                <div className="collection-chat-user-block">
+                  <p className="collection-chat-timestamp">{entry.timestamp}</p>
+                  <p className="collection-chat-bubble">{entry.user}</p>
+                </div>
+              </div>
+              <div className="collection-chat-turn collection-chat-turn--assistant">
+                <div>
+                  <p className="collection-chat-response">{entry.reve}</p>
+                  <div
+                    className="collection-chat-thumb-row"
+                    style={{ '--thumb-count': entry.imageSrcs.length } as CSSProperties}
+                    aria-label="Result images"
+                  >
+                    {entry.imageSrcs.map((src, thumbIndex) => {
+                      const tileIndex = galleryTiles.findIndex((t) => t.src === src)
+                      return (
+                        <button
+                          key={`gallery-chat-dynamic-thumb-${index}-${thumbIndex}`}
+                          className="collection-chat-thumb-button"
+                          type="button"
+                          aria-label="Open result in edit view"
+                          onMouseEnter={() => tileIndex >= 0 && applyHighlight(tileIndex)}
+                          onMouseLeave={() => applyHighlight(null)}
+                          onClick={(event) => {
+                            const thumbnailImage = event.currentTarget.querySelector('img')
+                            const imageAspectRatio =
+                              thumbnailImage && thumbnailImage.naturalWidth > 0 && thumbnailImage.naturalHeight > 0
+                                ? thumbnailImage.naturalWidth / thumbnailImage.naturalHeight
+                                : undefined
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                            onOpenEditView(src, tileIndex >= 0 ? tileIndex : galleryTiles.length - 1, imageAspectRatio, rect)
+                          }}
+                        >
+                          <img className="collection-chat-thumb-image" src={resolveThumbnailSrc(src)} alt="" aria-hidden="true" />
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
