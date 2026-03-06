@@ -699,7 +699,7 @@ function App() {
   const [isReveRendering, setIsReveRendering] = useState(false)
   const [reveRenderError, setReveRenderError] = useState<string | null>(null)
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
-  const [renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
+  const [_renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
   const [objectPositionOverrides, setObjectPositionOverrides] = useState<Record<string, { x: number; y: number }>>({})
   const [draggedObjectName, setDraggedObjectName] = useState<string | null>(null)
@@ -847,11 +847,12 @@ function App() {
     infoText !== imageDescription ||
     hasObjectDescriptionChanges
   const canRender = hasComposerChanges && !isReveRendering
-  const hasRenderHistory = renderHistory.length > 0
+  const [filmstripVisible, setFilmstripVisible] = useState(false)
+  const showFilmstrip = filmstripVisible
   const isCollectionView = currentView === 'gallery' || currentView === 'tranche' || currentView === 'favorites'
   const showBottomUi = !isCollectionView
   const showComposer = showBottomUi || isCollectionView
-  const controlsBottomPx = hasRenderHistory ? filmstripBottomGapPx + filmstripThumbnailHeightPx + filmstripControlsGapPx : 10
+  const controlsBottomPx = showFilmstrip ? filmstripBottomGapPx + filmstripThumbnailHeightPx + filmstripControlsGapPx : 10
   const currentViewLabel =
     currentView === 'edit'
       ? 'Edit View'
@@ -1447,6 +1448,7 @@ function App() {
         }
         return [...previous, nextRenderItem]
       })
+      setFilmstripVisible(true)
       renderRevealTimeoutRef.current = window.setTimeout(() => {
         setRenderRevealTransition(null)
         renderRevealTimeoutRef.current = null
@@ -1514,7 +1516,6 @@ function App() {
       )
       if (!magicFixMountedRef.current) return
       setMagicFixGeneratedImages((prev) => [firstSrc, prev[1]])
-      await getReferenceImageBase64(firstSrc)
       if (!magicFixMountedRef.current) return
       const secondSrc = await revealEdit(
         'create an enhanced version of this image that is over the top with moody lighting, colors and movement. You can change the layout somewhat.',
@@ -2501,7 +2502,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (renderHistory.length < 2) {
+    if (!showFilmstrip) {
       return
     }
 
@@ -2520,19 +2521,20 @@ function App() {
         return
       }
 
-      const currentIndex = renderHistory.findIndex((item) => item.src === displayImageSrc)
+      const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+      const currentIndex = galleryTiles.indexOf(displayImageSrc)
       const index = currentIndex >= 0 ? currentIndex : 0
-      const length = renderHistory.length
+      const length = galleryTiles.length
       let nextIndex: number
       if (event.key === 'ArrowLeft') {
         nextIndex = (index - 1 + length) % length
       } else {
         nextIndex = (index + 1) % length
       }
-      const nextItem = renderHistory[nextIndex]
-      if (nextItem) {
+      const nextSrc = galleryTiles[nextIndex]
+      if (nextSrc) {
         event.preventDefault()
-        setDisplayImageSrc(nextItem.src)
+        setDisplayImageSrc(nextSrc)
         setSourceImageLoaded(false)
       }
     }
@@ -2541,7 +2543,7 @@ function App() {
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [renderHistory, displayImageSrc])
+  }, [showFilmstrip, displayImageSrc])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -3660,33 +3662,39 @@ function App() {
           ))}
         </section>
       )}
-      {showBottomUi && hasRenderHistory && (
+      {showBottomUi && (
         <section
-          className="render-filmstrip"
+          className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}`}
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
-          aria-label="Render history"
+          aria-label="Gallery filmstrip"
         >
           <div className="render-filmstrip-track">
-            {renderHistory.map((historyImage) => (
+            {[...galleryPlaceholderImageSrcs, fixedCollectionImageSrc].map((imageSrc, index) => (
               <button
-                key={historyImage.id}
-                className={`render-filmstrip-item${historyImage.src === displayImageSrc ? ' active' : ''}`}
+                key={index}
+                className={`render-filmstrip-item${imageSrc === displayImageSrc ? ' active' : ''}`}
                 type="button"
-                aria-label="Load render"
+                aria-label={resolveImageName(imageSrc, index)}
                 onClick={() => {
-                  setDisplayImageSrc(historyImage.src)
+                  setDisplayImageSrc(imageSrc)
                   setSourceImageLoaded(false)
                 }}
               >
-                <img className="render-filmstrip-image" src={historyImage.src} alt="" aria-hidden="true" />
+                <img className="render-filmstrip-image" src={resolveCollectionThumbnailSrc(imageSrc)} alt="" aria-hidden="true" />
               </button>
             ))}
           </div>
         </section>
       )}
+      {showBottomUi && (
+        <div
+          className={`filmstrip-trigger${filmstripVisible ? ' filmstrip-trigger--active' : ''}`}
+          onClick={() => setFilmstripVisible((prev) => !prev)}
+        />
+      )}
       {showBottomUi && reveRenderError && <p className="composer-render-error">{reveRenderError}</p>}
       {currentView === 'edit' ? (
-      <EditView isChatOpen={isEditChatOpen}>
+      <EditView isChatOpen={isEditChatOpen} extraBottomPx={showFilmstrip ? filmstripBottomGapPx + filmstripThumbnailHeightPx + filmstripControlsGapPx : 0}>
         <div
           ref={imageFrameRef}
           className={`image-frame${selectedTool === 'commentDraw' ? ' image-frame--comment' : ''}${selectedTool === 'reframe' && !isMagicFixView ? ' image-frame--reframe' : ''}${isMagicFixView ? ' image-frame--magic-fix' : ''}${isInteractionMenuOpen ? ' image-frame--interaction-locked' : ''}`}
@@ -3773,6 +3781,7 @@ function App() {
                             if (prev.some((h) => h.src === src)) return prev
                             return [...prev, item]
                           })
+                          setFilmstripVisible(true)
                           setSelectedTool('select')
                         }}
                       />
@@ -3807,6 +3816,7 @@ function App() {
                             if (prev.some((h) => h.src === src)) return prev
                             return [...prev, item]
                           })
+                          setFilmstripVisible(true)
                           setSelectedTool('select')
                         }}
                       />

@@ -491,7 +491,7 @@
 }
 
 .text-action-button:disabled {
-  opacity: 0.25;
+  opacity: 0.5;
   pointer-events: none;
 }
 
@@ -1036,6 +1036,21 @@
   pointer-events: none;
 }
 
+.filmstrip-trigger {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  z-index: 35;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.filmstrip-trigger:hover {
+  background-color: #333333;
+}
+
 .composer-main-row {
   display: flex;
   align-items: center;
@@ -1085,27 +1100,35 @@
   left: 0;
   right: 0;
   bottom: 10px;
-  height: 70px;
+  height: 50px;
   display: block;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 10px;
   box-sizing: border-box;
   z-index: 30;
+  transform: translateY(calc(100% + 10px));
+  opacity: 0;
+  transition: transform 250ms ease, opacity 250ms ease;
+  pointer-events: none;
+}
+
+.render-filmstrip--visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .render-filmstrip-track {
-  width: max-content;
-  min-width: 100%;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
 }
 
 .render-filmstrip-item {
   height: 50px;
-  width: auto;
   border: 0;
   padding: 0;
   margin: 0;
@@ -1113,16 +1136,17 @@
   background: transparent;
   display: inline-flex;
   cursor: pointer;
-  flex: 0 0 auto;
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   position: relative;
 }
 
 .render-filmstrip-image {
   display: block;
-  height: 50px;
-  width: auto;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .render-filmstrip-item.active {
@@ -1971,9 +1995,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 60px 10px 60px;
+  padding: 60px 10px calc(60px + var(--stage-extra-bottom, 0px));
   box-sizing: border-box;
-  transition: padding-right 250ms ease;
+  transition: padding-right 250ms ease, padding-bottom 250ms ease;
 }
 
 .image-stage.image-stage--chat-open {
@@ -2760,9 +2784,9 @@
 }
 
 .image-frame {
-  width: min(calc(100vw - 20px), calc((100vh - 120px) * var(--image-aspect-ratio, 1.7708333333)));
+  width: min(calc(100vw - 20px), calc((100vh - 120px - var(--stage-extra-bottom, 0px)) * var(--image-aspect-ratio, 1.7708333333)));
   max-width: calc(100vw - 20px);
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px - var(--stage-extra-bottom, 0px));
   aspect-ratio: var(--image-aspect-ratio, 2720 / 1536);
   position: relative;
   overflow: visible;
@@ -2774,7 +2798,7 @@
 }
 
 .image-stage.image-stage--chat-open .image-frame {
-  width: min(calc(100vw - 351px), calc((100vh - 120px) * var(--image-aspect-ratio, 1.7708333333)));
+  width: min(calc(100vw - 351px), calc((100vh - 120px - var(--stage-extra-bottom, 0px)) * var(--image-aspect-ratio, 1.7708333333)));
   max-width: calc(100vw - 351px);
 }
 
