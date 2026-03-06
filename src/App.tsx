@@ -3339,7 +3339,7 @@ function App() {
       {showComposer && (
       <nav
         className={`composer${isCollectionView ? ' composer--gallery-chat' : ''}${currentView === 'tranche' ? ' composer--tranche' : ''}${isMagicFixView ? ' composer--disabled' : ''}`}
-        style={{ bottom: `${isCollectionView ? 10 : controlsBottomPx}px` }}
+        style={{ bottom: `${isCollectionView || (currentView === 'edit' && isEditChatOpen) ? 10 : controlsBottomPx}px` }}
         aria-label="Composer"
         aria-disabled={isMagicFixView || undefined}
       >
