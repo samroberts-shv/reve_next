@@ -1106,7 +1106,10 @@
   bottom: 10px;
   height: 50px;
   display: block;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: visible;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
   padding: 0 10px;
   box-sizing: border-box;
   z-index: 30;
@@ -1114,6 +1117,10 @@
   opacity: 0;
   transition: transform 250ms ease, opacity 250ms ease;
   pointer-events: none;
+}
+
+.render-filmstrip::-webkit-scrollbar {
+  display: none;
 }
 
 .render-filmstrip--visible {
@@ -1129,9 +1136,9 @@
 .render-filmstrip-track {
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 5px;
-  width: 100%;
+  width: max-content;
 }
 
 .render-filmstrip-track .tooltip-button-wrap {

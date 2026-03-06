@@ -844,6 +844,7 @@ function App() {
     quadrant: 'upper-left' | 'upper-right' | 'lower-left' | 'lower-right'
   } | null>(null)
   const reframeBoxInitializedRef = useRef(false)
+  const filmstripRef = useRef<HTMLElement | null>(null)
   const [reframeAspectRatio, setReframeAspectRatio] = useState('16:9')
   const [isReframeAspectRatioMenuOpen, setIsReframeAspectRatioMenuOpen] = useState(false)
   const [reframeAspectRatioMenuAnchorRect, setReframeAspectRatioMenuAnchorRect] = useState<DOMRect | null>(null)
@@ -2566,6 +2567,19 @@ function App() {
   }, [showFilmstrip, displayImageSrc])
 
   useEffect(() => {
+    const el = filmstripRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      el.scrollLeft += e.deltaY
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', handleWheel)
+    }
+  }, [showFilmstrip])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
@@ -3719,6 +3733,7 @@ function App() {
       )}
       {showBottomUi && (
         <section
+          ref={filmstripRef}
           className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}${currentView === 'edit' && isEditChatOpen ? ' render-filmstrip--chat-inset' : ''}`}
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
           aria-label="Gallery filmstrip"
