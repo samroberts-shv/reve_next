@@ -1,6 +1,7 @@
 import { type CSSProperties, type Dispatch, type SetStateAction, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
+import type { DynamicChatEntry } from '../App'
 
 type TrancheViewProps = {
   fixedLastImageSrc: string
@@ -22,6 +23,7 @@ type TrancheViewProps = {
   isImageHidden?: boolean
   favoritedImageSrcs: string[]
   setFavoritedImageSrcs: Dispatch<SetStateAction<string[]>>
+  dynamicChatEntries?: DynamicChatEntry[]
 }
 
 const trancheTileGapPx = 10
@@ -74,6 +76,7 @@ function TrancheView({
   setFavoritedImageSrcs,
   scrollToTrancheIndex,
   onScrollToTrancheComplete,
+  dynamicChatEntries = [],
 }: TrancheViewProps) {
   const trancheGroupsRef = useRef<HTMLElement | null>(null)
   const [openMoreMenuIndex, setOpenMoreMenuIndex] = useState<number | null>(null)
@@ -145,13 +148,24 @@ function TrancheView({
       src: fixedLastImageSrc,
     },
   ]
-  const trancheRanges = [
+  const staticTrancheRanges = [
     { start: 0, end: 4 },
     { start: 4, end: 8 },
     { start: 8, end: 11 },
     { start: 11, end: 14 },
     { start: 14, end: 16 },
   ]
+
+  // Build dynamic tranche ranges for each dynamic chat entry
+  const dynamicTrancheRanges: { start: number; end: number }[] = []
+  let dynamicStart = 16 // after the fixed 16 images
+  for (const entry of dynamicChatEntries) {
+    const end = dynamicStart + entry.imageSrcs.length
+    dynamicTrancheRanges.push({ start: dynamicStart, end })
+    dynamicStart = end
+  }
+
+  const trancheRanges = [...staticTrancheRanges, ...dynamicTrancheRanges]
 
   const getTrancheIndexForGlobalIndex = (globalIndex: number) =>
     trancheRanges.findIndex((r) => globalIndex >= r.start && globalIndex < r.end)
@@ -170,11 +184,33 @@ function TrancheView({
     return Math.max(1, Math.min(masonryColumnsByWidth, preferredColumns))
   }
 
+  const staticTrancheCount = trancheChatScript.length
+
   const renderTrancheChatContent = (
     index: number,
     suggestionClick?: (s: string) => void,
     hideSuggestions = false,
   ) => {
+    // Check if this is a dynamic entry
+    if (index >= staticTrancheCount) {
+      const dynamicIndex = index - staticTrancheCount
+      const dynamicEntry = dynamicChatEntries[dynamicIndex]
+      if (!dynamicEntry) return null
+      return (
+        <>
+          <div className="collection-chat-turn collection-chat-turn--user">
+            <div className="collection-chat-user-block">
+              <p className="collection-chat-timestamp">{dynamicEntry.timestamp}</p>
+              <p className="collection-chat-bubble">{dynamicEntry.user}</p>
+            </div>
+          </div>
+          <div className="collection-chat-turn collection-chat-turn--assistant">
+            <p className="collection-chat-response">{dynamicEntry.reve}</p>
+          </div>
+        </>
+      )
+    }
+
     const entry = trancheChatScript[index]
     if (!entry) return null
     const timestamp = chatTimestamps[index] ?? ''
@@ -313,7 +349,7 @@ function TrancheView({
       />
       {chatTransition ? (
         <>
-          {trancheChatScript[chatTransition.outgoingIndex] && (
+          {(trancheChatScript[chatTransition.outgoingIndex] || chatTransition.outgoingIndex >= staticTrancheCount) && (
             <div
               className={`tranche-chat-overlay tranche-chat-overlay--exiting tranche-chat-overlay--exiting-${chatTransition.direction}`}
               aria-label="Tranche chat"
@@ -346,7 +382,7 @@ function TrancheView({
           </div>
         </>
       ) : (
-        trancheChatScript[visibleTrancheIndex] && (
+        (trancheChatScript[visibleTrancheIndex] || visibleTrancheIndex >= staticTrancheCount) && (
           <div className="tranche-chat-overlay" aria-label="Tranche chat">
             <div className="tranche-chat-scroll">
               <section className="tranche-chat-entry" key={`tranche-chat-${visibleTrancheIndex}`}>

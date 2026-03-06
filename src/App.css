@@ -491,7 +491,7 @@
 }
 
 .text-action-button:disabled {
-  opacity: 0.5;
+  opacity: 0.25;
   pointer-events: none;
 }
 
@@ -1051,6 +1051,10 @@
   background-color: #333333;
 }
 
+.filmstrip-trigger--chat-inset {
+  right: 321px;
+}
+
 .composer-main-row {
   display: flex;
   align-items: center;
@@ -1117,6 +1121,10 @@
   transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
+}
+
+.render-filmstrip--chat-inset {
+  right: 321px;
 }
 
 .render-filmstrip-track {

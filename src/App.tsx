@@ -503,6 +503,10 @@ const resolveImageName = (src: string, index?: number): string => {
   const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageNames.length) return galleryImageNames[idx]
+  if (idx >= galleryImageNames.length) {
+    const renderNumber = idx - galleryImageNames.length + 1
+    return `Render ${renderNumber}`
+  }
   if (typeof src === 'string' && (src.includes('montblanc') || src.includes('montblanctrail'))) {
     return 'Mont Blanc Trail'
   }
@@ -513,6 +517,10 @@ const resolveImageDate = (src: string, index?: number): string => {
   const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageDates.length) return galleryImageDates[idx]
+  if (idx >= galleryImageDates.length) {
+    const now = new Date()
+    return now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
   return ''
 }
 
@@ -693,6 +701,11 @@ function App() {
   const [composerInput, setComposerInput] = useState('')
   const [composerChanges] = useState<string[]>([])
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
+  const [additionalImageSrcs, setAdditionalImageSrcs] = useState<string[]>([])
+  const [dynamicChatEntries, setDynamicChatEntries] = useState<DynamicChatEntry[]>([])
+  const allGalleryImageSrcs = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs]
+  const allGalleryImageSrcsRef = useRef(allGalleryImageSrcs)
+  allGalleryImageSrcsRef.current = allGalleryImageSrcs
   const [currentImageAspectRatio, setCurrentImageAspectRatio] = useState(sourceImageSize.width / sourceImageSize.height)
   const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
   const [isCollectionGridReady, setIsCollectionGridReady] = useState(true)
@@ -1456,6 +1469,13 @@ function App() {
 
       setDisplayImageSrc(nextImageSrc)
       setSourceImageLoaded(false)
+      setAdditionalImageSrcs(prev => [...prev, nextImageSrc])
+      setDynamicChatEntries(prev => [...prev, {
+        timestamp: 'Just now',
+        user: editInstruction,
+        reve: "Here's your edited image.",
+        imageSrcs: [nextImageSrc],
+      }])
       setComposerInput('')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Reve render failed.'
@@ -1927,7 +1947,7 @@ function App() {
 
   const startTransitionEditToCollection = () => {
     const targetView = previousCollectionView ?? 'gallery'
-    const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+    const galleryTiles = allGalleryImageSrcs
     const matchedTileIndex = galleryTiles.findIndex((tileSrc) => tileSrc === displayImageSrc)
     const targetTileIndex = matchedTileIndex >= 0 ? matchedTileIndex : galleryPlaceholderImageSrcs.length
     const nextTransition: ViewTransition = {
@@ -2521,7 +2541,7 @@ function App() {
         return
       }
 
-      const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+      const galleryTiles = allGalleryImageSrcsRef.current
       const currentIndex = galleryTiles.indexOf(displayImageSrc)
       const index = currentIndex >= 0 ? currentIndex : 0
       const length = galleryTiles.length
@@ -3321,7 +3341,7 @@ function App() {
       {showComposer && (
       <nav
         className={`composer${isCollectionView ? ' composer--gallery-chat' : ''}${currentView === 'tranche' ? ' composer--tranche' : ''}${isMagicFixView ? ' composer--disabled' : ''}`}
-        style={{ bottom: `${isCollectionView ? 10 : controlsBottomPx}px` }}
+        style={{ bottom: `${isCollectionView || (currentView === 'edit' && isEditChatOpen) ? 10 : controlsBottomPx}px` }}
         aria-label="Composer"
         aria-disabled={isMagicFixView || undefined}
       >
@@ -3645,11 +3665,46 @@ function App() {
                 </div>
               </section>
             ))}
+            {dynamicChatEntries.map((entry, index) => (
+              <section className="collection-chat-entry" key={`edit-chat-dynamic-${index}`}>
+                <div className="collection-chat-turn collection-chat-turn--user">
+                  <div className="collection-chat-user-block">
+                    <p className="collection-chat-timestamp">{entry.timestamp}</p>
+                    <p className="collection-chat-bubble">{entry.user}</p>
+                  </div>
+                </div>
+                <div className="collection-chat-turn collection-chat-turn--assistant">
+                  <div>
+                    <p className="collection-chat-response">{entry.reve}</p>
+                    <div
+                      className="collection-chat-thumb-row"
+                      style={{ '--thumb-count': entry.imageSrcs.length } as React.CSSProperties}
+                      aria-label="Result images"
+                    >
+                      {entry.imageSrcs.map((src, thumbIndex) => (
+                        <button
+                          key={`edit-chat-dynamic-thumb-${index}-${thumbIndex}`}
+                          className="collection-chat-thumb-button"
+                          type="button"
+                          aria-label="Open result in edit view"
+                          onClick={() => {
+                            setDisplayImageSrc(src)
+                            setSourceImageLoaded(false)
+                          }}
+                        >
+                          <img className="collection-chat-thumb-image" src={resolveCollectionThumbnailSrc(src)} alt="" aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ))}
           </div>
         </aside>
       )}
       {currentView === 'edit' && isEditChatOpen && showComposer && (
-        <section className="composer-suggestions" style={{ bottom: `${controlsBottomPx + 64}px` }} aria-label="Suggested edits">
+        <section className="composer-suggestions" style={{ bottom: `${74}px` }} aria-label="Suggested edits">
           {editChatComposerSuggestions.map((suggestion) => (
             <button
               key={suggestion}
@@ -3664,12 +3719,12 @@ function App() {
       )}
       {showBottomUi && (
         <section
-          className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}`}
+          className={`render-filmstrip${showFilmstrip ? ' render-filmstrip--visible' : ''}${currentView === 'edit' && isEditChatOpen ? ' render-filmstrip--chat-inset' : ''}`}
           style={{ bottom: `${filmstripBottomGapPx}px`, height: `${filmstripThumbnailHeightPx}px` }}
           aria-label="Gallery filmstrip"
         >
           <div className="render-filmstrip-track">
-            {[...galleryPlaceholderImageSrcs, fixedCollectionImageSrc].map((imageSrc, index) => (
+            {allGalleryImageSrcs.map((imageSrc, index) => (
               <button
                 key={index}
                 className={`render-filmstrip-item${imageSrc === displayImageSrc ? ' active' : ''}`}
@@ -3688,7 +3743,7 @@ function App() {
       )}
       {showBottomUi && (
         <div
-          className={`filmstrip-trigger${filmstripVisible ? ' filmstrip-trigger--active' : ''}`}
+          className={`filmstrip-trigger${filmstripVisible ? ' filmstrip-trigger--active' : ''}${currentView === 'edit' && isEditChatOpen ? ' filmstrip-trigger--chat-inset' : ''}`}
           onClick={() => setFilmstripVisible((prev) => !prev)}
         />
       )}
@@ -3783,6 +3838,7 @@ function App() {
                           })
                           setFilmstripVisible(true)
                           setSelectedTool('select')
+                          setAdditionalImageSrcs(prev => prev.includes(src) ? prev : [...prev, src])
                         }}
                       />
                     ) : (
@@ -3818,6 +3874,7 @@ function App() {
                           })
                           setFilmstripVisible(true)
                           setSelectedTool('select')
+                          setAdditionalImageSrcs(prev => prev.includes(src) ? prev : [...prev, src])
                         }}
                       />
                     ) : (
@@ -4690,7 +4747,7 @@ function App() {
       ) : currentView === 'gallery' ? (
         <GalleryView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
@@ -4701,11 +4758,12 @@ function App() {
           isImageHidden={viewTransition !== null}
           favoritedImageSrcs={favoritedImageSrcs}
           setFavoritedImageSrcs={setFavoritedImageSrcs}
+          dynamicChatEntries={dynamicChatEntries}
         />
       ) : currentView === 'tranche' ? (
         <TrancheView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={galleryPlaceholderImageSrcs}
+          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
           resolveImageSrc={(src) => src}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
@@ -4727,6 +4785,7 @@ function App() {
           isImageHidden={viewTransition !== null}
           favoritedImageSrcs={favoritedImageSrcs}
           setFavoritedImageSrcs={setFavoritedImageSrcs}
+          dynamicChatEntries={dynamicChatEntries}
         />
       ) : (
         <FavoritesView
@@ -4759,5 +4818,7 @@ function App() {
     </>
   )
 }
+
+export type DynamicChatEntry = { timestamp: string; user: string; reve: string; imageSrcs: string[] }
 
 export default App
