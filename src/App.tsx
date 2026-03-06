@@ -2589,6 +2589,12 @@ function App() {
   }, [showFilmstrip, displayImageSrc])
 
   useEffect(() => {
+    if (isReveRendering && showFilmstrip && filmstripRef.current) {
+      filmstripRef.current.scrollLeft = filmstripRef.current.scrollWidth
+    }
+  }, [isReveRendering, showFilmstrip])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
@@ -3763,6 +3769,16 @@ function App() {
                 <img className="render-filmstrip-image" src={resolveCollectionThumbnailSrc(imageSrc)} alt="" aria-hidden="true" />
               </TooltipButton>
             ))}
+            {isReveRendering && (
+              <div className="render-filmstrip-item render-filmstrip-item--loading">
+                <img
+                  className="render-filmstrip-image render-filmstrip-image--loading"
+                  src={resolveCollectionThumbnailSrc(displayImageSrc)}
+                  alt=""
+                  aria-hidden="true"
+                />
+              </div>
+            )}
           </div>
         </section>
       )}
