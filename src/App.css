@@ -1106,8 +1106,7 @@
   bottom: 10px;
   height: 50px;
   display: block;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   padding: 0 10px;
   box-sizing: border-box;
   z-index: 30;
