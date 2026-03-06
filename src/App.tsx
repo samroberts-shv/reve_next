@@ -3725,10 +3725,11 @@ function App() {
         >
           <div className="render-filmstrip-track">
             {allGalleryImageSrcs.map((imageSrc, index) => (
-              <button
+              <TooltipButton
                 key={index}
                 className={`render-filmstrip-item${imageSrc === displayImageSrc ? ' active' : ''}`}
-                type="button"
+                tooltip={resolveImageName(imageSrc, index)}
+                placement="above"
                 aria-label={resolveImageName(imageSrc, index)}
                 onClick={() => {
                   setDisplayImageSrc(imageSrc)
@@ -3736,7 +3737,7 @@ function App() {
                 }}
               >
                 <img className="render-filmstrip-image" src={resolveCollectionThumbnailSrc(imageSrc)} alt="" aria-hidden="true" />
-              </button>
+              </TooltipButton>
             ))}
           </div>
         </section>

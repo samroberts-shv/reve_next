@@ -1135,6 +1135,11 @@
   width: 100%;
 }
 
+.render-filmstrip-track .tooltip-button-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .render-filmstrip-item {
   height: 50px;
   border: 0;
