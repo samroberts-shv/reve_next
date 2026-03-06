@@ -3702,7 +3702,7 @@ function App() {
         </aside>
       )}
       {currentView === 'edit' && isEditChatOpen && showComposer && (
-        <section className="composer-suggestions" style={{ bottom: `${controlsBottomPx + 64}px` }} aria-label="Suggested edits">
+        <section className="composer-suggestions" style={{ bottom: `${74}px` }} aria-label="Suggested edits">
           {editChatComposerSuggestions.map((suggestion) => (
             <button
               key={suggestion}
