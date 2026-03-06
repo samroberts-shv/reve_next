@@ -1,8 +1,7 @@
 import { type CSSProperties, type Dispatch, type SetStateAction, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import moreGlyph from '../assets/glyphs/more.svg'
 import ThumbnailMoreMenu from '../components/ThumbnailMoreMenu'
-
-type DynamicChatEntry = { timestamp: string; user: string; reve: string; imageSrcs: string[] }
+import type { DynamicChatEntry } from '../App'
 
 type TrancheViewProps = {
   fixedLastImageSrc: string

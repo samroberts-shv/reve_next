@@ -702,8 +702,10 @@ function App() {
   const [composerChanges] = useState<string[]>([])
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
   const [additionalImageSrcs, setAdditionalImageSrcs] = useState<string[]>([])
-  const [dynamicChatEntries, setDynamicChatEntries] = useState<{ timestamp: string; user: string; reve: string; imageSrcs: string[] }[]>([])
+  const [dynamicChatEntries, setDynamicChatEntries] = useState<DynamicChatEntry[]>([])
   const allGalleryImageSrcs = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs]
+  const allGalleryImageSrcsRef = useRef(allGalleryImageSrcs)
+  allGalleryImageSrcsRef.current = allGalleryImageSrcs
   const [currentImageAspectRatio, setCurrentImageAspectRatio] = useState(sourceImageSize.width / sourceImageSize.height)
   const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
   const [isCollectionGridReady, setIsCollectionGridReady] = useState(true)
@@ -2539,7 +2541,7 @@ function App() {
         return
       }
 
-      const galleryTiles = allGalleryImageSrcs
+      const galleryTiles = allGalleryImageSrcsRef.current
       const currentIndex = galleryTiles.indexOf(displayImageSrc)
       const index = currentIndex >= 0 ? currentIndex : 0
       const length = galleryTiles.length
@@ -4816,5 +4818,7 @@ function App() {
     </>
   )
 }
+
+export type DynamicChatEntry = { timestamp: string; user: string; reve: string; imageSrcs: string[] }
 
 export default App
