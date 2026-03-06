@@ -3770,7 +3770,7 @@ function App() {
               </TooltipButton>
             ))}
             {isReveRendering && (
-              <div className="render-filmstrip-item render-filmstrip-item--loading">
+              <div className="render-filmstrip-item render-filmstrip-item--loading active">
                 <img
                   className="render-filmstrip-image render-filmstrip-image--loading"
                   src={resolveCollectionThumbnailSrc(displayImageSrc)}
