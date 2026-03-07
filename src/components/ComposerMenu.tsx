@@ -4,7 +4,7 @@ import chevronRightGlyph from '../assets/glyphs/chevron_right.svg'
 import chevronBackGlyph from '../assets/glyphs/chevron_back.svg'
 import checkGlyph from '../assets/glyphs/check.svg'
 
-const COMPOSER_MENU_ITEMS = ['Tool', 'Count', 'Aspect Ratio', 'Use attachments', 'Model'] as const
+const COMPOSER_MENU_ITEMS = ['Tool', 'Count', 'Aspect Ratio', 'Use attachments', 'Model', 'Reset'] as const
 
 const SUB_MENU_OPTIONS: Record<string, string[]> = {
   Tool: ['Auto', '1.5 Preview', 'Video from frames', 'Video from references', 'Video from prompt'],
@@ -90,7 +90,7 @@ function ComposerMenu({
       >
         {activeSubMenu === null ? (
           <>
-            {COMPOSER_MENU_ITEMS.map((label) => (
+            {COMPOSER_MENU_ITEMS.filter((l) => l !== 'Reset').map((label) => (
               <button
                 key={label}
                 type="button"
@@ -103,6 +103,18 @@ function ComposerMenu({
                 <img className="thumbnail-more-menu-item-chevron" src={chevronRightGlyph} alt="" aria-hidden="true" />
               </button>
             ))}
+            <div className="thumbnail-more-menu-separator" />
+            <button
+              type="button"
+              className="thumbnail-more-menu-item"
+              role="menuitem"
+              onClick={() => {
+                onValuesChange({ ...DEFAULT_VALUES })
+                onClose()
+              }}
+            >
+              Reset
+            </button>
           </>
         ) : (
           <>
