@@ -2063,6 +2063,13 @@ function App() {
   }, [activeBottomLeftMenu])
 
   useEffect(() => {
+    if (hoveredObjectListName && imageFrameRef.current) {
+      const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
+      setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
+    }
+  }, [hoveredObjectListName])
+
+  useEffect(() => {
     if (selectedTool !== 'select') {
       setHoveredObjectName(null)
       closeObjectPrompt()
