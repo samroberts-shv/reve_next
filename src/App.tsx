@@ -3,6 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1216,7 +1217,7 @@ function App() {
     setActiveCommentId(null)
   }
 
-  const handleAddMenuTriggerClick = (event: MouseEvent<HTMLButtonElement>) => {
+  const handleAddMenuTriggerClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const triggerBounds = event.currentTarget.getBoundingClientRect()
     const triggerOrigin = (event.currentTarget.dataset.addMenuOrigin as AddMenuOrigin | undefined) ?? 'composer'
     setAddMenuOrigin(triggerOrigin)
@@ -1228,7 +1229,7 @@ function App() {
     setWebSearchError(null)
     setHasWebSearchPerformed(false)
     setIsComposerAddMenuOpen(true)
-  }
+  }, [])
 
   const handleObjectRowAddClick = (objectName: string, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
@@ -1638,7 +1639,7 @@ function App() {
     setActiveBottomLeftMenu((previous) => (previous === menu ? null : menu))
   }
 
-  const handleImageMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+  const handleImageMouseMove = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
       return
     }
@@ -1670,9 +1671,9 @@ function App() {
     setHoveredObjectName(hoveredObject?.name ?? null)
     setHoverTooltipPosition({ x: event.clientX, y: event.clientY })
     setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
-  }
+  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
-  const handleImageClick = (event: MouseEvent<HTMLDivElement>) => {
+  const handleImageClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
       return
     }
@@ -1700,7 +1701,7 @@ function App() {
     }
 
     // Opening the object prompt is handled in pointer up when the interaction was a click (no drag)
-  }
+  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
   const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
@@ -1983,7 +1984,7 @@ function App() {
     }, viewTransitionDurationMs)
   }
 
-  const resolveCollectionThumbnailSrc = (src: string) => galleryFullToThumbSrc.get(src) ?? src
+  const resolveCollectionThumbnailSrc = useCallback((src: string) => galleryFullToThumbSrc.get(src) ?? src, [])
 
   useLayoutEffect(() => {
     if (!viewTransition || viewTransition.animateToTarget || currentView !== 'edit') {
