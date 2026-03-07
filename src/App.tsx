@@ -3,6 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -363,6 +364,9 @@ const getObjectPromptPanelPosition = (imageObject: (typeof imageObjects)[number]
   return { left, top }
 }
 
+const trashIconSvgPath =
+  'M4.73047 13.1104C4.58919 13.1104 4.47526 13.0716 4.38867 12.9941C4.30208 12.9121 4.25651 12.8027 4.25195 12.666L4.04688 5.50195C4.04232 5.36979 4.08333 5.2627 4.16992 5.18066C4.25651 5.09408 4.37044 5.05078 4.51172 5.05078C4.65299 5.05078 4.76693 5.0918 4.85352 5.17383C4.9401 5.25586 4.9834 5.36296 4.9834 5.49512L5.19531 12.6592C5.19531 12.7959 5.15202 12.9053 5.06543 12.9873C4.9834 13.0693 4.87174 13.1104 4.73047 13.1104ZM6.74023 13.1104C6.59896 13.1104 6.48275 13.0693 6.3916 12.9873C6.30501 12.9053 6.26172 12.7982 6.26172 12.666V5.50195C6.26172 5.36979 6.30501 5.2627 6.3916 5.18066C6.48275 5.09408 6.59896 5.05078 6.74023 5.05078C6.88607 5.05078 7.00228 5.09408 7.08887 5.18066C7.18001 5.2627 7.22559 5.36979 7.22559 5.50195V12.666C7.22559 12.7982 7.18001 12.9053 7.08887 12.9873C7.00228 13.0693 6.88607 13.1104 6.74023 13.1104ZM8.75684 13.1104C8.611 13.1104 8.49479 13.0693 8.4082 12.9873C8.32617 12.9053 8.28743 12.7959 8.29199 12.6592L8.49707 5.50195C8.50163 5.36523 8.5472 5.25586 8.63379 5.17383C8.72038 5.0918 8.83203 5.05078 8.96875 5.05078C9.11458 5.05078 9.22852 5.09408 9.31055 5.18066C9.39714 5.2627 9.43815 5.36979 9.43359 5.50195L9.22852 12.666C9.22396 12.8027 9.17839 12.9121 9.0918 12.9941C9.00521 13.0716 8.89355 13.1104 8.75684 13.1104ZM3.63672 3.14355V1.66699C3.63672 1.1429 3.79395 0.735026 4.1084 0.443359C4.42741 0.147135 4.86947 -0.000976562 5.43457 -0.000976562H8.03223C8.59733 -0.000976562 9.03939 0.147135 9.3584 0.443359C9.67741 0.735026 9.83691 1.1429 9.83691 1.66699V3.14355H8.57227V1.72852C8.57227 1.55534 8.5153 1.41634 8.40137 1.31152C8.28743 1.20215 8.13477 1.14746 7.94336 1.14746H5.52344C5.33659 1.14746 5.1862 1.20215 5.07227 1.31152C4.95833 1.41634 4.90137 1.55534 4.90137 1.72852V3.14355H3.63672ZM0.608398 3.89551C0.439779 3.89551 0.296224 3.83626 0.177734 3.71777C0.0592448 3.59928 0 3.45573 0 3.28711C0 3.12305 0.0592448 2.98405 0.177734 2.87012C0.296224 2.75163 0.439779 2.69238 0.608398 2.69238H12.8789C13.0475 2.69238 13.1888 2.74935 13.3027 2.86328C13.4212 2.97721 13.4805 3.11849 13.4805 3.28711C13.4805 3.45573 13.4212 3.59928 13.3027 3.71777C13.1888 3.83626 13.0475 3.89551 12.8789 3.89551H0.608398ZM3.60254 15.4277C3.07389 15.4277 2.65007 15.2796 2.33105 14.9834C2.0166 14.6872 1.84798 14.2747 1.8252 13.7461L1.34668 3.76562H2.59766L3.06934 13.5342C3.07845 13.7347 3.14453 13.8988 3.26758 14.0264C3.39062 14.154 3.54785 14.2178 3.73926 14.2178H9.74121C9.93262 14.2178 10.0898 14.154 10.2129 14.0264C10.3359 13.9033 10.402 13.7393 10.4111 13.5342L10.8623 3.76562H12.1338L11.6621 13.7393C11.6393 14.2679 11.4684 14.6803 11.1494 14.9766C10.8304 15.2773 10.4089 15.4277 9.88477 15.4277H3.60254Z'
+
 const commentTextPlaceholder = 'Change this...'
 const addMenuWidth = 300
 const addMenuFixedHeight = 420
@@ -499,8 +503,9 @@ const galleryImageDates = [
   'Mar 2, 2025',
 ]
 
+const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+
 const resolveImageName = (src: string, index?: number): string => {
-  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageNames.length) return galleryImageNames[idx]
   if (idx >= galleryImageNames.length) {
@@ -514,7 +519,6 @@ const resolveImageName = (src: string, index?: number): string => {
 }
 
 const resolveImageDate = (src: string, index?: number): string => {
-  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageDates.length) return galleryImageDates[idx]
   if (idx >= galleryImageDates.length) {
@@ -703,23 +707,34 @@ function App() {
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
   const [additionalImageSrcs, setAdditionalImageSrcs] = useState<string[]>([])
   const [dynamicChatEntries, setDynamicChatEntries] = useState<DynamicChatEntry[]>([])
-  const allGalleryImageSrcs = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs]
+  const allGalleryImageSrcs = useMemo(
+    () => [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs],
+    [additionalImageSrcs]
+  )
   const allGalleryImageSrcsRef = useRef(allGalleryImageSrcs)
   allGalleryImageSrcsRef.current = allGalleryImageSrcs
+  const placeholderAndAdditionalSrcs = useMemo(
+    () => [...galleryPlaceholderImageSrcs, ...additionalImageSrcs],
+    [additionalImageSrcs]
+  )
   const [currentImageAspectRatio, setCurrentImageAspectRatio] = useState(sourceImageSize.width / sourceImageSize.height)
   const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
   const [isCollectionGridReady, setIsCollectionGridReady] = useState(true)
   const [isReveRendering, setIsReveRendering] = useState(false)
   const [reveRenderError, setReveRenderError] = useState<string | null>(null)
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
-  const [_renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
+  const [, setRenderHistory] = useState<RenderHistoryItem[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
   const [objectPositionOverrides, setObjectPositionOverrides] = useState<Record<string, { x: number; y: number }>>({})
   const [draggedObjectName, setDraggedObjectName] = useState<string | null>(null)
   const [dragCurrentCenter, setDragCurrentCenter] = useState<{ x: number; y: number } | null>(null)
   const objectDragPointerIdRef = useRef<number | null>(null)
   const dragStartCenterRef = useRef<{ x: number; y: number } | null>(null)
-  const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
+  const [imageHoverState, setImageHoverState] = useState({
+    hoveredObjectName: null as string | null,
+    tooltipPosition: { x: 0, y: 0 },
+    cornerMarkerSize: 36,
+  })
   const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
   const [expandedObjectListName, setExpandedObjectListName] = useState<string | null>(null)
   const [activeObjectPromptName, setActiveObjectPromptName] = useState<string | null>(null)
@@ -731,7 +746,7 @@ function App() {
   const [objectPromptPanelPosition, setObjectPromptPanelPosition] = useState({ left: 10, top: 10 })
   const [objectPromptFromOffset, setObjectPromptFromOffset] = useState({ x: 0, y: 0 })
   const [objectPromptAnimationKey, setObjectPromptAnimationKey] = useState(0)
-  const [hoverTooltipPosition, setHoverTooltipPosition] = useState({ x: 0, y: 0 })
+
   const [commentCursorPosition, setCommentCursorPosition] = useState({ x: 0, y: 0 })
   const [showCommentCursorHint, setShowCommentCursorHint] = useState(false)
   const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([])
@@ -755,7 +770,7 @@ function App() {
   const [isWebSearchLoading, setIsWebSearchLoading] = useState(false)
   const [webSearchError, setWebSearchError] = useState<string | null>(null)
   const [hasWebSearchPerformed, setHasWebSearchPerformed] = useState(false)
-  const [hoverCornerMarkerSize, setHoverCornerMarkerSize] = useState(36)
+
   const bottomLeftContainerRef = useRef<HTMLDivElement | null>(null)
   const infoTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const objectRowDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -805,7 +820,7 @@ function App() {
     offsetY: number
   } | null>(null)
   const isMagicFixView = selectedTool === 'magicFix'
-  const [_magicFixExpanded, setMagicFixExpanded] = useState(false)
+  const [, setMagicFixExpanded] = useState(false)
   const [magicFixGeneratedImages, setMagicFixGeneratedImages] = useState<[string | null, string | null]>([null, null])
   const [isMagicFixLoading, setIsMagicFixLoading] = useState(false)
   const [magicFixError, setMagicFixError] = useState<string | null>(null)
@@ -1002,7 +1017,7 @@ function App() {
       return
     }
 
-    setHoveredObjectName(null)
+    setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
     setShowCommentCursorHint(false)
     setIsDrawingCommentStroke(false)
     setDraftCommentStrokePoints([])
@@ -1206,7 +1221,7 @@ function App() {
     setActiveCommentId(null)
   }
 
-  const handleAddMenuTriggerClick = (event: MouseEvent<HTMLButtonElement>) => {
+  const handleAddMenuTriggerClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const triggerBounds = event.currentTarget.getBoundingClientRect()
     const triggerOrigin = (event.currentTarget.dataset.addMenuOrigin as AddMenuOrigin | undefined) ?? 'composer'
     setAddMenuOrigin(triggerOrigin)
@@ -1218,7 +1233,7 @@ function App() {
     setWebSearchError(null)
     setHasWebSearchPerformed(false)
     setIsComposerAddMenuOpen(true)
-  }
+  }, [])
 
   const handleObjectRowAddClick = (objectName: string, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
@@ -1628,7 +1643,7 @@ function App() {
     setActiveBottomLeftMenu((previous) => (previous === menu ? null : menu))
   }
 
-  const handleImageMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+  const handleImageMouseMove = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
       return
     }
@@ -1641,7 +1656,7 @@ function App() {
     }
 
     if (selectedTool !== 'select') {
-      setHoveredObjectName(null)
+      setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
       return
     }
 
@@ -1657,12 +1672,14 @@ function App() {
     }
     const hoveredObject = getSmallestObjectAtSourcePointWithDisplay(sourceX, sourceY, displayOptions)
 
-    setHoveredObjectName(hoveredObject?.name ?? null)
-    setHoverTooltipPosition({ x: event.clientX, y: event.clientY })
-    setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
-  }
+    setImageHoverState({
+      hoveredObjectName: hoveredObject?.name ?? null,
+      tooltipPosition: { x: event.clientX, y: event.clientY },
+      cornerMarkerSize: (imageFrameBounds.width / sourceImageSize.width) * 36,
+    })
+  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
-  const handleImageClick = (event: MouseEvent<HTMLDivElement>) => {
+  const handleImageClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
       return
     }
@@ -1690,7 +1707,7 @@ function App() {
     }
 
     // Opening the object prompt is handled in pointer up when the interaction was a click (no drag)
-  }
+  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
   const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
@@ -1873,14 +1890,14 @@ function App() {
   }
 
   const handleImageMouseLeave = () => {
-    setHoveredObjectName(null)
+    setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
     setShowCommentCursorHint(false)
   }
 
   const selectedImageObject = activeObjectPromptName
     ? imageObjects.find((imageObject) => imageObject.name === activeObjectPromptName) ?? null
     : null
-  const transientHighlightedObjectName = hoveredObjectListName ?? hoveredObjectName
+  const transientHighlightedObjectName = hoveredObjectListName ?? imageHoverState.hoveredObjectName
   const transientHighlightedObject = transientHighlightedObjectName
     ? imageObjects.find((imageObject) => imageObject.name === transientHighlightedObjectName) ?? null
     : null
@@ -1973,7 +1990,7 @@ function App() {
     }, viewTransitionDurationMs)
   }
 
-  const resolveCollectionThumbnailSrc = (src: string) => galleryFullToThumbSrc.get(src) ?? src
+  const resolveCollectionThumbnailSrc = useCallback((src: string) => galleryFullToThumbSrc.get(src) ?? src, [])
 
   useLayoutEffect(() => {
     if (!viewTransition || viewTransition.animateToTarget || currentView !== 'edit') {
@@ -2065,13 +2082,13 @@ function App() {
   useEffect(() => {
     if (hoveredObjectListName && imageFrameRef.current) {
       const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
-      setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
+      setImageHoverState(prev => ({ ...prev, cornerMarkerSize: (imageFrameBounds.width / sourceImageSize.width) * 36 }))
     }
   }, [hoveredObjectListName])
 
   useEffect(() => {
     if (selectedTool !== 'select') {
-      setHoveredObjectName(null)
+      setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
       closeObjectPrompt()
     }
 
@@ -4494,25 +4511,25 @@ function App() {
                   className="object-corner-marker object-corner-marker--static object-corner-marker-tl"
                   src={boundingBoxTl}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-tr"
                   src={boundingBoxTr}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-bl"
                   src={boundingBoxBl}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-br"
                   src={boundingBoxBr}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
               </div>
               )
@@ -4533,25 +4550,25 @@ function App() {
                     className={`object-corner-marker object-corner-marker-tl${staticClass}`}
                     src={boundingBoxTl}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-tr${staticClass}`}
                     src={boundingBoxTr}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-bl${staticClass}`}
                     src={boundingBoxBl}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-br${staticClass}`}
                     src={boundingBoxBr}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                 </div>
               )
@@ -4662,15 +4679,15 @@ function App() {
               ))}
           </div>
         </div>
-        {hoveredObjectName && (
+        {imageHoverState.hoveredObjectName && (
           <div
             className="image-hover-tooltip"
             style={{
-              left: `${hoverTooltipPosition.x + 10}px`,
-              top: `${hoverTooltipPosition.y + 10}px`,
+              left: `${imageHoverState.tooltipPosition.x + 10}px`,
+              top: `${imageHoverState.tooltipPosition.y + 10}px`,
             }}
           >
-            {hoveredObjectName}
+            {imageHoverState.hoveredObjectName}
           </div>
         )}
         {selectedTool === 'commentDraw' && showCommentCursorHint && (
@@ -4725,10 +4742,7 @@ function App() {
                   onClick={() => handleDeleteComment(activeComment.id)}
                 >
                   <svg className="object-prompt-glyph object-prompt-glyph-trash" viewBox="0 0 14 16" aria-hidden="true">
-                    <path
-                      d="M4.73047 13.1104C4.58919 13.1104 4.47526 13.0716 4.38867 12.9941C4.30208 12.9121 4.25651 12.8027 4.25195 12.666L4.04688 5.50195C4.04232 5.36979 4.08333 5.2627 4.16992 5.18066C4.25651 5.09408 4.37044 5.05078 4.51172 5.05078C4.65299 5.05078 4.76693 5.0918 4.85352 5.17383C4.9401 5.25586 4.9834 5.36296 4.9834 5.49512L5.19531 12.6592C5.19531 12.7959 5.15202 12.9053 5.06543 12.9873C4.9834 13.0693 4.87174 13.1104 4.73047 13.1104ZM6.74023 13.1104C6.59896 13.1104 6.48275 13.0693 6.3916 12.9873C6.30501 12.9053 6.26172 12.7982 6.26172 12.666V5.50195C6.26172 5.36979 6.30501 5.2627 6.3916 5.18066C6.48275 5.09408 6.59896 5.05078 6.74023 5.05078C6.88607 5.05078 7.00228 5.09408 7.08887 5.18066C7.18001 5.2627 7.22559 5.36979 7.22559 5.50195V12.666C7.22559 12.7982 7.18001 12.9053 7.08887 12.9873C7.00228 13.0693 6.88607 13.1104 6.74023 13.1104ZM8.75684 13.1104C8.611 13.1104 8.49479 13.0693 8.4082 12.9873C8.32617 12.9053 8.28743 12.7959 8.29199 12.6592L8.49707 5.50195C8.50163 5.36523 8.5472 5.25586 8.63379 5.17383C8.72038 5.0918 8.83203 5.05078 8.96875 5.05078C9.11458 5.05078 9.22852 5.09408 9.31055 5.18066C9.39714 5.2627 9.43815 5.36979 9.43359 5.50195L9.22852 12.666C9.22396 12.8027 9.17839 12.9121 9.0918 12.9941C9.00521 13.0716 8.89355 13.1104 8.75684 13.1104ZM3.63672 3.14355V1.66699C3.63672 1.1429 3.79395 0.735026 4.1084 0.443359C4.42741 0.147135 4.86947 -0.000976562 5.43457 -0.000976562H8.03223C8.59733 -0.000976562 9.03939 0.147135 9.3584 0.443359C9.67741 0.735026 9.83691 1.1429 9.83691 1.66699V3.14355H8.57227V1.72852C8.57227 1.55534 8.5153 1.41634 8.40137 1.31152C8.28743 1.20215 8.13477 1.14746 7.94336 1.14746H5.52344C5.33659 1.14746 5.1862 1.20215 5.07227 1.31152C4.95833 1.41634 4.90137 1.55534 4.90137 1.72852V3.14355H3.63672ZM0.608398 3.89551C0.439779 3.89551 0.296224 3.83626 0.177734 3.71777C0.0592448 3.59928 0 3.45573 0 3.28711C0 3.12305 0.0592448 2.98405 0.177734 2.87012C0.296224 2.75163 0.439779 2.69238 0.608398 2.69238H12.8789C13.0475 2.69238 13.1888 2.74935 13.3027 2.86328C13.4212 2.97721 13.4805 3.11849 13.4805 3.28711C13.4805 3.45573 13.4212 3.59928 13.3027 3.71777C13.1888 3.83626 13.0475 3.89551 12.8789 3.89551H0.608398ZM3.60254 15.4277C3.07389 15.4277 2.65007 15.2796 2.33105 14.9834C2.0166 14.6872 1.84798 14.2747 1.8252 13.7461L1.34668 3.76562H2.59766L3.06934 13.5342C3.07845 13.7347 3.14453 13.8988 3.26758 14.0264C3.39062 14.154 3.54785 14.2178 3.73926 14.2178H9.74121C9.93262 14.2178 10.0898 14.154 10.2129 14.0264C10.3359 13.9033 10.402 13.7393 10.4111 13.5342L10.8623 3.76562H12.1338L11.6621 13.7393C11.6393 14.2679 11.4684 14.6803 11.1494 14.9766C10.8304 15.2773 10.4089 15.4277 9.88477 15.4277H3.60254Z"
-                      fill="currentColor"
-                    />
+                    <path d={trashIconSvgPath} fill="currentColor" />
                   </svg>
                 </button>
               </div>
@@ -4769,10 +4783,7 @@ function App() {
                 </button>
                 <button className="object-prompt-glyph-button" type="button" aria-label="Delete object prompt">
                   <svg className="object-prompt-glyph object-prompt-glyph-trash" viewBox="0 0 14 16" aria-hidden="true">
-                    <path
-                      d="M4.73047 13.1104C4.58919 13.1104 4.47526 13.0716 4.38867 12.9941C4.30208 12.9121 4.25651 12.8027 4.25195 12.666L4.04688 5.50195C4.04232 5.36979 4.08333 5.2627 4.16992 5.18066C4.25651 5.09408 4.37044 5.05078 4.51172 5.05078C4.65299 5.05078 4.76693 5.0918 4.85352 5.17383C4.9401 5.25586 4.9834 5.36296 4.9834 5.49512L5.19531 12.6592C5.19531 12.7959 5.15202 12.9053 5.06543 12.9873C4.9834 13.0693 4.87174 13.1104 4.73047 13.1104ZM6.74023 13.1104C6.59896 13.1104 6.48275 13.0693 6.3916 12.9873C6.30501 12.9053 6.26172 12.7982 6.26172 12.666V5.50195C6.26172 5.36979 6.30501 5.2627 6.3916 5.18066C6.48275 5.09408 6.59896 5.05078 6.74023 5.05078C6.88607 5.05078 7.00228 5.09408 7.08887 5.18066C7.18001 5.2627 7.22559 5.36979 7.22559 5.50195V12.666C7.22559 12.7982 7.18001 12.9053 7.08887 12.9873C7.00228 13.0693 6.88607 13.1104 6.74023 13.1104ZM8.75684 13.1104C8.611 13.1104 8.49479 13.0693 8.4082 12.9873C8.32617 12.9053 8.28743 12.7959 8.29199 12.6592L8.49707 5.50195C8.50163 5.36523 8.5472 5.25586 8.63379 5.17383C8.72038 5.0918 8.83203 5.05078 8.96875 5.05078C9.11458 5.05078 9.22852 5.09408 9.31055 5.18066C9.39714 5.2627 9.43815 5.36979 9.43359 5.50195L9.22852 12.666C9.22396 12.8027 9.17839 12.9121 9.0918 12.9941C9.00521 13.0716 8.89355 13.1104 8.75684 13.1104ZM3.63672 3.14355V1.66699C3.63672 1.1429 3.79395 0.735026 4.1084 0.443359C4.42741 0.147135 4.86947 -0.000976562 5.43457 -0.000976562H8.03223C8.59733 -0.000976562 9.03939 0.147135 9.3584 0.443359C9.67741 0.735026 9.83691 1.1429 9.83691 1.66699V3.14355H8.57227V1.72852C8.57227 1.55534 8.5153 1.41634 8.40137 1.31152C8.28743 1.20215 8.13477 1.14746 7.94336 1.14746H5.52344C5.33659 1.14746 5.1862 1.20215 5.07227 1.31152C4.95833 1.41634 4.90137 1.55534 4.90137 1.72852V3.14355H3.63672ZM0.608398 3.89551C0.439779 3.89551 0.296224 3.83626 0.177734 3.71777C0.0592448 3.59928 0 3.45573 0 3.28711C0 3.12305 0.0592448 2.98405 0.177734 2.87012C0.296224 2.75163 0.439779 2.69238 0.608398 2.69238H12.8789C13.0475 2.69238 13.1888 2.74935 13.3027 2.86328C13.4212 2.97721 13.4805 3.11849 13.4805 3.28711C13.4805 3.45573 13.4212 3.59928 13.3027 3.71777C13.1888 3.83626 13.0475 3.89551 12.8789 3.89551H0.608398ZM3.60254 15.4277C3.07389 15.4277 2.65007 15.2796 2.33105 14.9834C2.0166 14.6872 1.84798 14.2747 1.8252 13.7461L1.34668 3.76562H2.59766L3.06934 13.5342C3.07845 13.7347 3.14453 13.8988 3.26758 14.0264C3.39062 14.154 3.54785 14.2178 3.73926 14.2178H9.74121C9.93262 14.2178 10.0898 14.154 10.2129 14.0264C10.3359 13.9033 10.402 13.7393 10.4111 13.5342L10.8623 3.76562H12.1338L11.6621 13.7393C11.6393 14.2679 11.4684 14.6803 11.1494 14.9766C10.8304 15.2773 10.4089 15.4277 9.88477 15.4277H3.60254Z"
-                      fill="currentColor"
-                    />
+                    <path d={trashIconSvgPath} fill="currentColor" />
                   </svg>
                 </button>
               </div>
@@ -4795,7 +4806,7 @@ function App() {
       ) : currentView === 'gallery' ? (
         <GalleryView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
+          placeholderImageSrcs={placeholderAndAdditionalSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
@@ -4811,7 +4822,7 @@ function App() {
       ) : currentView === 'tranche' ? (
         <TrancheView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
+          placeholderImageSrcs={placeholderAndAdditionalSrcs}
           resolveImageSrc={(src) => src}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
