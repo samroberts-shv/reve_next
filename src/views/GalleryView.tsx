@@ -126,6 +126,10 @@ function GalleryView({
         btn.style.zIndex = index === highlightedIndex ? '1' : ''
       }
     })
+    // Scroll the highlighted thumbnail into view
+    if (highlightedIndex !== null && buttons[highlightedIndex]) {
+      buttons[highlightedIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
   }, [])
 
   return (
