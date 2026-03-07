@@ -499,8 +499,9 @@ const galleryImageDates = [
   'Mar 2, 2025',
 ]
 
+const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
+
 const resolveImageName = (src: string, index?: number): string => {
-  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageNames.length) return galleryImageNames[idx]
   if (idx >= galleryImageNames.length) {
@@ -514,7 +515,6 @@ const resolveImageName = (src: string, index?: number): string => {
 }
 
 const resolveImageDate = (src: string, index?: number): string => {
-  const galleryTiles = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc]
   const idx = index ?? galleryTiles.indexOf(src)
   if (idx >= 0 && idx < galleryImageDates.length) return galleryImageDates[idx]
   if (idx >= galleryImageDates.length) {
@@ -703,16 +703,23 @@ function App() {
   const [displayImageSrc, setDisplayImageSrc] = useState(montBlancTrail)
   const [additionalImageSrcs, setAdditionalImageSrcs] = useState<string[]>([])
   const [dynamicChatEntries, setDynamicChatEntries] = useState<DynamicChatEntry[]>([])
-  const allGalleryImageSrcs = [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs]
+  const allGalleryImageSrcs = useMemo(
+    () => [...galleryPlaceholderImageSrcs, fixedCollectionImageSrc, ...additionalImageSrcs],
+    [additionalImageSrcs]
+  )
   const allGalleryImageSrcsRef = useRef(allGalleryImageSrcs)
   allGalleryImageSrcsRef.current = allGalleryImageSrcs
+  const placeholderAndAdditionalSrcs = useMemo(
+    () => [...galleryPlaceholderImageSrcs, ...additionalImageSrcs],
+    [additionalImageSrcs]
+  )
   const [currentImageAspectRatio, setCurrentImageAspectRatio] = useState(sourceImageSize.width / sourceImageSize.height)
   const [viewTransition, setViewTransition] = useState<ViewTransition | null>(null)
   const [isCollectionGridReady, setIsCollectionGridReady] = useState(true)
   const [isReveRendering, setIsReveRendering] = useState(false)
   const [reveRenderError, setReveRenderError] = useState<string | null>(null)
   const [renderRevealTransition, setRenderRevealTransition] = useState<RenderRevealTransition | null>(null)
-  const [_renderHistory, setRenderHistory] = useState<RenderHistoryItem[]>([])
+  const [, setRenderHistory] = useState<RenderHistoryItem[]>([])
   const [showObjectOverlays, setShowObjectOverlays] = useState(false)
   const [objectPositionOverrides, setObjectPositionOverrides] = useState<Record<string, { x: number; y: number }>>({})
   const [draggedObjectName, setDraggedObjectName] = useState<string | null>(null)
@@ -805,7 +812,7 @@ function App() {
     offsetY: number
   } | null>(null)
   const isMagicFixView = selectedTool === 'magicFix'
-  const [_magicFixExpanded, setMagicFixExpanded] = useState(false)
+  const [, setMagicFixExpanded] = useState(false)
   const [magicFixGeneratedImages, setMagicFixGeneratedImages] = useState<[string | null, string | null]>([null, null])
   const [isMagicFixLoading, setIsMagicFixLoading] = useState(false)
   const [magicFixError, setMagicFixError] = useState<string | null>(null)
@@ -4795,7 +4802,7 @@ function App() {
       ) : currentView === 'gallery' ? (
         <GalleryView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
+          placeholderImageSrcs={placeholderAndAdditionalSrcs}
           resolveThumbnailSrc={resolveCollectionThumbnailSrc}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
@@ -4811,7 +4818,7 @@ function App() {
       ) : currentView === 'tranche' ? (
         <TrancheView
           fixedLastImageSrc={fixedCollectionImageSrc}
-          placeholderImageSrcs={[...galleryPlaceholderImageSrcs, ...additionalImageSrcs]}
+          placeholderImageSrcs={placeholderAndAdditionalSrcs}
           resolveImageSrc={(src) => src}
           resolveImageName={resolveImageName}
           resolveImageDate={resolveImageDate}
