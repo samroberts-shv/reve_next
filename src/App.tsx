@@ -730,7 +730,11 @@ function App() {
   const [dragCurrentCenter, setDragCurrentCenter] = useState<{ x: number; y: number } | null>(null)
   const objectDragPointerIdRef = useRef<number | null>(null)
   const dragStartCenterRef = useRef<{ x: number; y: number } | null>(null)
-  const [hoveredObjectName, setHoveredObjectName] = useState<string | null>(null)
+  const [imageHoverState, setImageHoverState] = useState({
+    hoveredObjectName: null as string | null,
+    tooltipPosition: { x: 0, y: 0 },
+    cornerMarkerSize: 36,
+  })
   const [hoveredObjectListName, setHoveredObjectListName] = useState<string | null>(null)
   const [expandedObjectListName, setExpandedObjectListName] = useState<string | null>(null)
   const [activeObjectPromptName, setActiveObjectPromptName] = useState<string | null>(null)
@@ -742,7 +746,7 @@ function App() {
   const [objectPromptPanelPosition, setObjectPromptPanelPosition] = useState({ left: 10, top: 10 })
   const [objectPromptFromOffset, setObjectPromptFromOffset] = useState({ x: 0, y: 0 })
   const [objectPromptAnimationKey, setObjectPromptAnimationKey] = useState(0)
-  const [hoverTooltipPosition, setHoverTooltipPosition] = useState({ x: 0, y: 0 })
+
   const [commentCursorPosition, setCommentCursorPosition] = useState({ x: 0, y: 0 })
   const [showCommentCursorHint, setShowCommentCursorHint] = useState(false)
   const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([])
@@ -766,7 +770,7 @@ function App() {
   const [isWebSearchLoading, setIsWebSearchLoading] = useState(false)
   const [webSearchError, setWebSearchError] = useState<string | null>(null)
   const [hasWebSearchPerformed, setHasWebSearchPerformed] = useState(false)
-  const [hoverCornerMarkerSize, setHoverCornerMarkerSize] = useState(36)
+
   const bottomLeftContainerRef = useRef<HTMLDivElement | null>(null)
   const infoTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const objectRowDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1013,7 +1017,7 @@ function App() {
       return
     }
 
-    setHoveredObjectName(null)
+    setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
     setShowCommentCursorHint(false)
     setIsDrawingCommentStroke(false)
     setDraftCommentStrokePoints([])
@@ -1652,7 +1656,7 @@ function App() {
     }
 
     if (selectedTool !== 'select') {
-      setHoveredObjectName(null)
+      setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
       return
     }
 
@@ -1668,9 +1672,11 @@ function App() {
     }
     const hoveredObject = getSmallestObjectAtSourcePointWithDisplay(sourceX, sourceY, displayOptions)
 
-    setHoveredObjectName(hoveredObject?.name ?? null)
-    setHoverTooltipPosition({ x: event.clientX, y: event.clientY })
-    setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
+    setImageHoverState({
+      hoveredObjectName: hoveredObject?.name ?? null,
+      tooltipPosition: { x: event.clientX, y: event.clientY },
+      cornerMarkerSize: (imageFrameBounds.width / sourceImageSize.width) * 36,
+    })
   }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
 
   const handleImageClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
@@ -1884,14 +1890,14 @@ function App() {
   }
 
   const handleImageMouseLeave = () => {
-    setHoveredObjectName(null)
+    setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
     setShowCommentCursorHint(false)
   }
 
   const selectedImageObject = activeObjectPromptName
     ? imageObjects.find((imageObject) => imageObject.name === activeObjectPromptName) ?? null
     : null
-  const transientHighlightedObjectName = hoveredObjectListName ?? hoveredObjectName
+  const transientHighlightedObjectName = hoveredObjectListName ?? imageHoverState.hoveredObjectName
   const transientHighlightedObject = transientHighlightedObjectName
     ? imageObjects.find((imageObject) => imageObject.name === transientHighlightedObjectName) ?? null
     : null
@@ -2076,13 +2082,13 @@ function App() {
   useEffect(() => {
     if (hoveredObjectListName && imageFrameRef.current) {
       const imageFrameBounds = imageFrameRef.current.getBoundingClientRect()
-      setHoverCornerMarkerSize((imageFrameBounds.width / sourceImageSize.width) * 36)
+      setImageHoverState(prev => ({ ...prev, cornerMarkerSize: (imageFrameBounds.width / sourceImageSize.width) * 36 }))
     }
   }, [hoveredObjectListName])
 
   useEffect(() => {
     if (selectedTool !== 'select') {
-      setHoveredObjectName(null)
+      setImageHoverState(prev => ({ ...prev, hoveredObjectName: null }))
       closeObjectPrompt()
     }
 
@@ -4505,25 +4511,25 @@ function App() {
                   className="object-corner-marker object-corner-marker--static object-corner-marker-tl"
                   src={boundingBoxTl}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-tr"
                   src={boundingBoxTr}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-bl"
                   src={boundingBoxBl}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
                 <img
                   className="object-corner-marker object-corner-marker--static object-corner-marker-br"
                   src={boundingBoxBr}
                   alt=""
-                  style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                  style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                 />
               </div>
               )
@@ -4544,25 +4550,25 @@ function App() {
                     className={`object-corner-marker object-corner-marker-tl${staticClass}`}
                     src={boundingBoxTl}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-tr${staticClass}`}
                     src={boundingBoxTr}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-bl${staticClass}`}
                     src={boundingBoxBl}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                   <img
                     className={`object-corner-marker object-corner-marker-br${staticClass}`}
                     src={boundingBoxBr}
                     alt=""
-                    style={{ width: `${hoverCornerMarkerSize}px`, height: `${hoverCornerMarkerSize}px` }}
+                    style={{ width: `${imageHoverState.cornerMarkerSize}px`, height: `${imageHoverState.cornerMarkerSize}px` }}
                   />
                 </div>
               )
@@ -4673,15 +4679,15 @@ function App() {
               ))}
           </div>
         </div>
-        {hoveredObjectName && (
+        {imageHoverState.hoveredObjectName && (
           <div
             className="image-hover-tooltip"
             style={{
-              left: `${hoverTooltipPosition.x + 10}px`,
-              top: `${hoverTooltipPosition.y + 10}px`,
+              left: `${imageHoverState.tooltipPosition.x + 10}px`,
+              top: `${imageHoverState.tooltipPosition.y + 10}px`,
             }}
           >
-            {hoveredObjectName}
+            {imageHoverState.hoveredObjectName}
           </div>
         )}
         {selectedTool === 'commentDraw' && showCommentCursorHint && (
