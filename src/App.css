@@ -761,7 +761,7 @@
 }
 
 .bottom-left-panel--effects {
-  width: fit-content;
+  width: 306px;
   padding: 10px;
   border-radius: 10px;
   max-height: none;
@@ -980,8 +980,7 @@
 
 .effects-grid {
   display: grid;
-  grid-template-columns: repeat(3, 72px);
-  grid-template-rows: repeat(5, auto);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1021,15 +1020,15 @@
 }
 
 .effect-thumb-wrap {
-  width: 72px;
-  height: 72px;
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: 5px;
   overflow: hidden;
 }
 
 .effect-thumb {
-  width: 72px;
-  height: 72px;
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: 5px;
   object-fit: cover;
   display: block;
@@ -1039,7 +1038,6 @@
 .effect-name {
   font-size: 12px;
   line-height: 1.2;
-  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
