@@ -981,7 +981,7 @@
 .effects-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 5px;
 }
 
 .effect-card {
