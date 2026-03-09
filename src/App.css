@@ -999,8 +999,8 @@
   text-align: center;
 }
 
-.effect-card:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+.effect-card:hover .effect-thumb {
+  transform: scale(1.04);
 }
 
 .effects-reset-button {
@@ -1020,12 +1020,20 @@
   background-color: rgba(255, 255, 255, 0.15);
 }
 
+.effect-thumb-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
 .effect-thumb {
   width: 72px;
   height: 72px;
   border-radius: 5px;
   object-fit: cover;
   display: block;
+  transition: transform 140ms ease;
 }
 
 .effect-name {

@@ -3502,15 +3502,17 @@ function App() {
                       }
                     }}
                   >
-                    <img
-                      className="effect-thumb"
-                      src={montBlancTrail}
-                      alt={effectName}
-                      style={(() => {
-                        const f = getEffectPreviewFilter(effectName)
-                        return f ? { filter: f } : undefined
-                      })()}
-                    />
+                    <div className="effect-thumb-wrap">
+                      <img
+                        className="effect-thumb"
+                        src={montBlancTrail}
+                        alt={effectName}
+                        style={(() => {
+                          const f = getEffectPreviewFilter(effectName)
+                          return f ? { filter: f } : undefined
+                        })()}
+                      />
+                    </div>
                     <span className="effect-name">
                       {activeEffects.includes(effectName) && <span className="effect-active-dot" />}
                       {effectName}
