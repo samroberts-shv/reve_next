@@ -1020,9 +1020,14 @@
   white-space: nowrap;
 }
 
-.effect-card--active {
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 8px;
+.effect-active-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #3d78ff;
+  margin-right: 3px;
+  vertical-align: middle;
 }
 
 .effects-detail {

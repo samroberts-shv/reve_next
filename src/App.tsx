@@ -3458,7 +3458,10 @@ function App() {
                     }}
                   >
                     <img className="effect-thumb" src={montBlancTrail} alt={effectName} />
-                    <span className="effect-name">{effectName}</span>
+                    <span className="effect-name">
+                      {activeEffects.includes(effectName) && <span className="effect-active-dot" />}
+                      {effectName}
+                    </span>
                   </button>
                 ))}
               </div>
