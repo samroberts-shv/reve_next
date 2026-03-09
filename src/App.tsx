@@ -3454,6 +3454,7 @@ function App() {
               </>
             )}
             {activeBottomLeftMenu === 'effects' && selectedEffectName == null && (
+              <>
               <div className="effects-grid">
                 {effectNames.map((effectName) => (
                   <button
@@ -3493,6 +3494,18 @@ function App() {
                   </button>
                 ))}
               </div>
+              <button
+                className="effects-reset-button"
+                type="button"
+                onClick={() => {
+                  setActiveEffects([])
+                  setEffectSliderValues({})
+                  setEffectColorTints({})
+                }}
+              >
+                Reset Effects
+              </button>
+              </>
             )}
             {activeBottomLeftMenu === 'effects' && selectedEffectName != null && EFFECT_CONFIGS[selectedEffectName] && (() => {
               const config = EFFECT_CONFIGS[selectedEffectName]
