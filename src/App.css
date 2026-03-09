@@ -524,7 +524,7 @@
 }
 
 .bottom-left-panel--objects {
-  width: 250px;
+  width: 300px;
   border-radius: 10px;
   padding: 10px;
   max-height: none;
@@ -761,11 +761,40 @@
 }
 
 .bottom-left-panel--effects {
-  width: fit-content;
-  padding: 15px;
+  width: 300px;
+  padding: 10px;
   border-radius: 10px;
   max-height: none;
   overflow: visible;
+}
+
+.bottom-left-panel--effects-detail {
+  width: 300px;
+  padding: 10px;
+  border-radius: 10px;
+  max-height: none;
+  overflow: visible;
+}
+
+.bottom-left-panel--effects-detail-dragging {
+  transition: background-color 200ms ease-out, backdrop-filter 200ms ease-out, -webkit-backdrop-filter 200ms ease-out;
+  background-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.bottom-left-panel--effects-detail-dragging .adjust-slider:not(.adjust-slider--active) {
+  transition: opacity 200ms ease-out;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bottom-left-panel--effects-detail-dragging .effects-detail-header,
+.bottom-left-panel--effects-detail-dragging .effects-color-picker,
+.bottom-left-panel--effects-detail-dragging .effects-bottom-buttons {
+  transition: opacity 200ms ease-out;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .objects-add-buttons {
@@ -951,9 +980,8 @@
 
 .effects-grid {
   display: grid;
-  grid-template-columns: repeat(3, 72px);
-  grid-template-rows: repeat(5, auto);
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
 }
 
 .effect-card {
@@ -970,25 +998,165 @@
   text-align: center;
 }
 
-.effect-card:hover {
+.effect-card:hover .effect-thumb {
+  transform: scale(1.08);
+}
+
+.effects-reset-button {
+  width: 100%;
+  height: 32px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 6px;
   background-color: rgba(255, 255, 255, 0.1);
+  color: #cccccc;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.effects-reset-button:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.effect-thumb-wrap {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  overflow: hidden;
 }
 
 .effect-thumb {
-  width: 72px;
-  height: 72px;
-  border-radius: 6px;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
   object-fit: cover;
   display: block;
+  transition: transform 140ms ease;
 }
 
 .effect-name {
   font-size: 12px;
   line-height: 1.2;
-  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.effect-active-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #3d78ff;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.effects-detail {
+  width: 100%;
+}
+
+.effects-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.effects-detail-title {
+  margin: 0;
+  color: #cccccc;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.effects-detail-more-button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.effects-detail-more-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.effects-detail-more-glyph {
+  width: 16px;
+  height: 16px;
+  opacity: 0.8;
+  filter: invert(1);
+}
+
+.effects-color-picker {
+  margin: 12px 0;
+}
+
+.effects-color-picker-label {
+  font-size: 12px;
+  color: #cccccc;
+  margin-bottom: 6px;
+}
+
+.effects-color-picker-swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.effects-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.effects-color-swatch--selected {
+  border-color: #ffffff;
+}
+
+.effects-bottom-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.effects-bottom-button {
+  flex: 1;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 12px;
+  text-align: center;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.effects-bottom-button--back {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #cccccc;
+}
+
+.effects-bottom-button--back:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.effects-bottom-button--remove {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #cc6666;
+}
+
+.effects-bottom-button--remove:hover {
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .quick-edit-actions {
