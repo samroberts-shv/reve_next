@@ -1000,7 +1000,7 @@
 }
 
 .effect-card:hover .effect-thumb {
-  transform: scale(1.04);
+  transform: scale(1.08);
 }
 
 .effects-reset-button {
