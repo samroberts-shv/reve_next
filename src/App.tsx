@@ -172,6 +172,26 @@ const effectNames = [
   'Neutral',
   'Golden Hour',
 ]
+const getEffectPreviewFilter = (effectName: string): string | undefined => {
+  switch (effectName) {
+    case 'Cinematic': return 'contrast(1.25) brightness(0.95)'
+    case 'Moody': return 'brightness(0.75) saturate(0.75)'
+    case 'Vintage': return 'sepia(0.3) contrast(0.9) brightness(1.05)'
+    case 'Black & White': return 'grayscale(1)'
+    case 'High Contrast': return 'contrast(1.5)'
+    case 'Soft Glow': return 'brightness(1.15) contrast(0.9)'
+    case 'Cool Tones': return 'hue-rotate(-15deg) saturate(1.1)'
+    case 'Warm Film': return 'sepia(0.25) saturate(1.2) brightness(1.05)'
+    case 'Matte': return 'contrast(0.85) brightness(1.1)'
+    case 'Sepia': return 'sepia(0.6)'
+    case 'Vivid': return 'saturate(1.6)'
+    case 'Fade': return 'brightness(1.15) contrast(0.8) saturate(0.8)'
+    case 'Dramatic': return 'contrast(1.4) brightness(0.9)'
+    case 'Neutral': return 'saturate(0.6) brightness(1.05)'
+    case 'Golden Hour': return 'sepia(0.2) saturate(1.3) brightness(1.1)'
+    default: return undefined
+  }
+}
 const EFFECT_CONFIGS: Record<string, { sliders: string[]; hasColorPicker?: boolean }> = {
   'Cinematic': { sliders: ['Intensity', 'Contrast', 'Fade'] },
   'Moody': { sliders: ['Intensity', 'Darkness', 'Desaturation'] },
@@ -3457,7 +3477,15 @@ function App() {
                       }
                     }}
                   >
-                    <img className="effect-thumb" src={montBlancTrail} alt={effectName} />
+                    <img
+                      className="effect-thumb"
+                      src={montBlancTrail}
+                      alt={effectName}
+                      style={(() => {
+                        const f = getEffectPreviewFilter(effectName)
+                        return f ? { filter: f } : undefined
+                      })()}
+                    />
                     <span className="effect-name">
                       {activeEffects.includes(effectName) && <span className="effect-active-dot" />}
                       {effectName}

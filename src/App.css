@@ -762,7 +762,7 @@
 
 .bottom-left-panel--effects {
   width: fit-content;
-  padding: 15px;
+  padding: 10px;
   border-radius: 10px;
   max-height: none;
   overflow: visible;
@@ -770,7 +770,7 @@
 
 .bottom-left-panel--effects-detail {
   width: 300px;
-  padding: 15px;
+  padding: 10px;
   border-radius: 10px;
   max-height: none;
   overflow: visible;
@@ -1006,7 +1006,7 @@
 .effect-thumb {
   width: 72px;
   height: 72px;
-  border-radius: 6px;
+  border-radius: 5px;
   object-fit: cover;
   display: block;
 }
