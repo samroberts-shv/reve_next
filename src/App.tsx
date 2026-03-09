@@ -1045,7 +1045,7 @@ function App() {
     objectPromptCloseTimeoutRef.current = null
   }
 
-  const closeObjectPrompt = () => {
+  const closeObjectPrompt = useCallback(() => {
     setActiveObjectPromptName(null)
 
     if (displayedObjectPromptName === null) {
@@ -1059,7 +1059,7 @@ function App() {
     }
 
     objectPromptCloseTimeoutRef.current = window.setTimeout(finishClosingObjectPrompt, 100)
-  }
+  }, [displayedObjectPromptName])
 
   const openObjectPrompt = (objectName: string, imageFrameBounds: DOMRect) => {
     const objectForPrompt = imageObjects.find((imageObject) => imageObject.name === objectName)
@@ -1707,7 +1707,7 @@ function App() {
     }
 
     // Opening the object prompt is handled in pointer up when the interaction was a click (no drag)
-  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter])
+  }, [isInteractionMenuOpen, selectedTool, objectPositionOverrides, draggedObjectName, dragCurrentCenter, closeObjectPrompt])
 
   const handleImagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (isInteractionMenuOpen) {
