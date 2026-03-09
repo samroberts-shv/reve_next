@@ -3450,6 +3450,15 @@ function App() {
                     )
                   })}
                 </div>
+                <button
+                  className="effects-reset-button"
+                  type="button"
+                  onClick={() => {
+                    setAdjustSliderValues(Object.fromEntries(ADJUST_SLIDER_IDS.map((id) => [id, 0])))
+                  }}
+                >
+                  Reset Adjustments
+                </button>
               </div>
               </>
             )}
