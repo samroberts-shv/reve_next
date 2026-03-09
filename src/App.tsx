@@ -824,6 +824,111 @@ function App() {
   const [effectSliderValues, setEffectSliderValues] = useState<Record<string, Record<string, number>>>({})
   const [effectSliderDraggingId, setEffectSliderDraggingId] = useState<string | null>(null)
   const [effectColorTints, setEffectColorTints] = useState<Record<string, string>>({})
+
+  const computedEffectFilter = useMemo(() => {
+    if (activeEffects.length === 0) return undefined
+    let brightness = 1
+    let contrast = 1
+    let saturate = 1
+    let grayscale = 0
+    let sepia = 0
+    let hueRotate = 0
+
+    for (const effectName of activeEffects) {
+      const sliders = effectSliderValues[effectName]
+      if (!sliders) continue
+      const intensity = (sliders['Intensity'] ?? 50) / 100
+
+      const val = (key: string) => sliders[key] ?? 0
+
+      // Black & White: always apply grayscale scaled by intensity
+      if (effectName === 'Black & White') {
+        grayscale = Math.min(1, grayscale + intensity)
+      }
+      // Sepia: always apply sepia scaled by intensity
+      if (effectName === 'Sepia') {
+        sepia = Math.min(1, sepia + intensity)
+      }
+
+      const config = EFFECT_CONFIGS[effectName]
+      if (!config) continue
+
+      for (const slider of config.sliders) {
+        if (slider === 'Intensity') continue
+        const v = val(slider)
+        const t = v / 100 // normalized -1..1
+
+        switch (slider) {
+          case 'Contrast':
+          case 'Clarity':
+            // Contrast: -100..100 → 0.5..1.5; Clarity: -100..100 → 0.9..1.2
+            if (slider === 'Contrast') contrast *= 1 + t * 0.5 * intensity
+            else contrast *= 1 + t * 0.3 * intensity
+            break
+          case 'Fade':
+            // Fade: washed out — increase brightness, reduce contrast
+            brightness *= 1 + t * 0.2 * intensity
+            contrast *= 1 - t * 0.2 * intensity
+            break
+          case 'Darkness':
+            // Higher = darker, so invert
+            brightness *= 1 - t * 0.5 * intensity
+            break
+          case 'Desaturation':
+            // -100..100 → 1.5..0.0
+            saturate *= 1 - t * 0.5 * intensity
+            break
+          case 'Highlights':
+            // -100..100 → 0.8..1.3
+            brightness *= 1 + t * 0.25 * intensity
+            break
+          case 'Shadows':
+            // -100..100 → 0.85..1.15
+            brightness *= 1 + t * 0.15 * intensity
+            break
+          case 'Brightness':
+          case 'Exposure':
+            // -100..100 → 0.5..1.5
+            brightness *= 1 + t * 0.5 * intensity
+            break
+          case 'Temperature':
+          case 'Warmth':
+            // warm shift: sepia + saturate
+            sepia = Math.min(1, sepia + Math.max(0, t) * 0.3 * intensity)
+            saturate *= 1 + t * 0.2 * intensity
+            break
+          case 'Tint':
+            // -100..100 → -30deg..30deg
+            hueRotate += t * 30 * intensity
+            break
+          case 'Saturation':
+            // -100..100 → 0.0..2.0
+            saturate *= 1 + t * intensity
+            break
+          case 'Vibrance':
+            // lighter touch: -100..100 → 0.7..1.5
+            saturate *= 1 + t * 0.4 * intensity
+            break
+          case 'Glow':
+            // -100..100 → 0.9..1.3
+            brightness *= 1 + t * 0.2 * intensity
+            break
+          // Grain, Radius: no CSS equivalent — skip
+        }
+      }
+    }
+
+    const parts: string[] = []
+    if (Math.abs(brightness - 1) > 0.001) parts.push(`brightness(${brightness.toFixed(3)})`)
+    if (Math.abs(contrast - 1) > 0.001) parts.push(`contrast(${contrast.toFixed(3)})`)
+    if (Math.abs(saturate - 1) > 0.001) parts.push(`saturate(${saturate.toFixed(3)})`)
+    if (grayscale > 0.001) parts.push(`grayscale(${grayscale.toFixed(3)})`)
+    if (sepia > 0.001) parts.push(`sepia(${sepia.toFixed(3)})`)
+    if (Math.abs(hueRotate) > 0.1) parts.push(`hue-rotate(${hueRotate.toFixed(1)}deg)`)
+
+    return parts.length > 0 ? parts.join(' ') : undefined
+  }, [activeEffects, effectSliderValues])
+
   const [favoritedImageSrcs, setFavoritedImageSrcs] = useState<string[]>([])
   const [editHeaderMoreMenuOpen, setEditHeaderMoreMenuOpen] = useState(false)
   const [editHeaderMoreMenuAnchorRect, setEditHeaderMoreMenuAnchorRect] = useState<DOMRect | null>(null)
@@ -4250,12 +4355,14 @@ function App() {
                   src={displayImageSrc}
                   alt="Mont Blanc trail landscape"
                   draggable={false}
+                  style={computedEffectFilter ? { filter: computedEffectFilter } : undefined}
                 />
               ) : (
                 <canvas
                   ref={heroWebGLCanvasRef}
                   className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
                   aria-label="Mont Blanc trail landscape with adjustments"
+                  style={computedEffectFilter ? { filter: computedEffectFilter } : undefined}
                 />
               )}
             </div>
@@ -4267,12 +4374,14 @@ function App() {
                   src={displayImageSrc}
                   alt="Mont Blanc trail landscape"
                   draggable={false}
+                  style={computedEffectFilter ? { filter: computedEffectFilter } : undefined}
                 />
               ) : (
                 <canvas
                   ref={heroWebGLCanvasRef}
                   className={`hero-image${isReveRendering ? ' hero-image--rendering' : ''}${renderRevealTransition ? ' hero-image--transition-hidden' : ''}${viewTransition && currentView === 'edit' ? ' hero-image--view-transition-hidden' : ''}`}
                   aria-label="Mont Blanc trail landscape with adjustments"
+                  style={computedEffectFilter ? { filter: computedEffectFilter } : undefined}
                 />
               )}
             </>
