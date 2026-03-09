@@ -172,6 +172,26 @@ const effectNames = [
   'Neutral',
   'Golden Hour',
 ]
+const EFFECT_CONFIGS: Record<string, { sliders: string[]; hasColorPicker?: boolean }> = {
+  'Cinematic': { sliders: ['Intensity', 'Contrast', 'Fade'] },
+  'Moody': { sliders: ['Intensity', 'Darkness', 'Desaturation'] },
+  'Vintage': { sliders: ['Intensity', 'Grain', 'Fade'], hasColorPicker: true },
+  'Black & White': { sliders: ['Intensity', 'Contrast', 'Grain'] },
+  'High Contrast': { sliders: ['Intensity', 'Highlights', 'Shadows'] },
+  'Soft Glow': { sliders: ['Intensity', 'Radius', 'Brightness'] },
+  'Cool Tones': { sliders: ['Intensity', 'Temperature', 'Tint'] },
+  'Warm Film': { sliders: ['Intensity', 'Warmth', 'Grain'], hasColorPicker: true },
+  'Matte': { sliders: ['Intensity', 'Fade', 'Contrast'] },
+  'Sepia': { sliders: ['Intensity', 'Warmth', 'Grain'] },
+  'Vivid': { sliders: ['Intensity', 'Saturation', 'Vibrance'] },
+  'Fade': { sliders: ['Intensity', 'Highlights', 'Desaturation'] },
+  'Dramatic': { sliders: ['Intensity', 'Contrast', 'Clarity'] },
+  'Neutral': { sliders: ['Intensity', 'Desaturation', 'Exposure'] },
+  'Golden Hour': { sliders: ['Intensity', 'Warmth', 'Glow'], hasColorPicker: true },
+}
+
+const EFFECT_COLOR_PRESETS = ['#e8c87a', '#d4956b', '#c47a7a', '#9b7ab8', '#6b8dc4', '#6bc4a8', '#8bc46b', '#cccccc']
+
 const sourceImageSize = {
   width: 2720,
   height: 1536,
@@ -799,6 +819,11 @@ function App() {
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
   const [pendingEditThumbnailSrcById, setPendingEditThumbnailSrcById] = useState<Record<string, string>>({})
   const [adjustSliderDraggingId, setAdjustSliderDraggingId] = useState<string | null>(null)
+  const [selectedEffectName, setSelectedEffectName] = useState<string | null>(null)
+  const [activeEffects, setActiveEffects] = useState<string[]>([])
+  const [effectSliderValues, setEffectSliderValues] = useState<Record<string, Record<string, number>>>({})
+  const [effectSliderDraggingId, setEffectSliderDraggingId] = useState<string | null>(null)
+  const [effectColorTints, setEffectColorTints] = useState<Record<string, string>>({})
   const [favoritedImageSrcs, setFavoritedImageSrcs] = useState<string[]>([])
   const [editHeaderMoreMenuOpen, setEditHeaderMoreMenuOpen] = useState(false)
   const [editHeaderMoreMenuAnchorRect, setEditHeaderMoreMenuAnchorRect] = useState<DOMRect | null>(null)
@@ -3084,7 +3109,9 @@ function App() {
                 : activeBottomLeftMenu === 'objects'
                   ? ` bottom-left-panel--objects${expandedObjectListName != null ? ' bottom-left-panel--objects-scrolling' : ''}`
                   : activeBottomLeftMenu === 'effects'
-                    ? ' bottom-left-panel--effects'
+                    ? selectedEffectName != null
+                      ? ` bottom-left-panel--effects-detail${effectSliderDraggingId != null ? ' bottom-left-panel--effects-detail-dragging' : ''}`
+                      : ' bottom-left-panel--effects'
                     : activeBottomLeftMenu === 'adjust'
                       ? ` bottom-left-panel--adjust${adjustSliderDraggingId != null ? ' bottom-left-panel--adjust-dragging' : ''}`
                       : ''
@@ -3301,16 +3328,212 @@ function App() {
               </div>
               </>
             )}
-            {activeBottomLeftMenu === 'effects' && (
+            {activeBottomLeftMenu === 'effects' && selectedEffectName == null && (
               <div className="effects-grid">
                 {effectNames.map((effectName) => (
-                  <button key={effectName} className="effect-card" type="button">
+                  <button
+                    key={effectName}
+                    className={`effect-card${activeEffects.includes(effectName) ? ' effect-card--active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedEffectName(effectName)
+                      if (!activeEffects.includes(effectName)) {
+                        setActiveEffects((prev) => [...prev, effectName])
+                      }
+                      if (!effectSliderValues[effectName]) {
+                        const config = EFFECT_CONFIGS[effectName]
+                        if (config) {
+                          const defaults: Record<string, number> = {}
+                          for (const s of config.sliders) {
+                            defaults[s] = s === 'Intensity' ? 50 : 0
+                          }
+                          setEffectSliderValues((prev) => ({ ...prev, [effectName]: defaults }))
+                        }
+                      }
+                    }}
+                  >
                     <img className="effect-thumb" src={montBlancTrail} alt={effectName} />
                     <span className="effect-name">{effectName}</span>
                   </button>
                 ))}
               </div>
             )}
+            {activeBottomLeftMenu === 'effects' && selectedEffectName != null && EFFECT_CONFIGS[selectedEffectName] && (() => {
+              const config = EFFECT_CONFIGS[selectedEffectName]
+              const sliderValues = effectSliderValues[selectedEffectName] ?? {}
+              return (
+                <div className="effects-detail">
+                  <div className="effects-detail-header">
+                    <h3 className="effects-detail-title">{selectedEffectName}</h3>
+                    <button className="effects-detail-more-button" type="button" aria-label="More options">
+                      <img className="effects-detail-more-glyph" src={moreGlyph} alt="" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="adjust-sliders">
+                    {config.sliders.map((sliderId) => {
+                      const value = sliderValues[sliderId] ?? (sliderId === 'Intensity' ? 50 : 0)
+                      const isIntensity = sliderId === 'Intensity'
+                      const min = isIntensity ? 0 : -100
+                      const max = 100
+                      const range = max - min
+                      return (
+                        <div
+                          key={sliderId}
+                          className={`adjust-slider${effectSliderDraggingId === sliderId ? ' adjust-slider--active' : ''}`}
+                          aria-label={sliderId}
+                          aria-hidden={effectSliderDraggingId != null && effectSliderDraggingId !== sliderId}
+                          onClick={(e) => {
+                            const track = e.currentTarget
+                            const rect = track.getBoundingClientRect()
+                            const x = e.clientX - rect.left
+                            const ratio = Math.max(0, Math.min(1, x / rect.width))
+                            const newValue = Math.round(ratio * range + min)
+                            setEffectSliderValues((prev) => ({
+                              ...prev,
+                              [selectedEffectName]: { ...prev[selectedEffectName], [sliderId]: newValue },
+                            }))
+                          }}
+                        >
+                          <div
+                            className="adjust-slider-fill"
+                            style={(() => {
+                              if (isIntensity) {
+                                return { left: '0%', width: `${(value / 100) * 100}%` }
+                              }
+                              if (value === 0) return { left: '50%', width: '0%' }
+                              if (value > 0) return { left: '50%', width: `${(value / 100) * 50}%` }
+                              return {
+                                left: `${((value + 100) / 200) * 100}%`,
+                                width: `${(-value / 100) * 50}%`,
+                              }
+                            })()}
+                            aria-hidden="true"
+                          />
+                          <div className="adjust-slider-inner">
+                            <span className="adjust-slider-name">{sliderId}</span>
+                            <span className="adjust-slider-value">{value}</span>
+                          </div>
+                          <div
+                            className="adjust-slider-line"
+                            role="slider"
+                            aria-valuemin={min}
+                            aria-valuemax={max}
+                            aria-valuenow={value}
+                            aria-label={sliderId}
+                            tabIndex={0}
+                            onPointerDown={(e) => {
+                              e.preventDefault()
+                              setEffectSliderDraggingId(sliderId)
+                              const track = (e.currentTarget as HTMLElement).closest('.adjust-slider')
+                              if (track) {
+                                const rect = track.getBoundingClientRect()
+                                const x = e.clientX - rect.left
+                                const ratio = Math.max(0, Math.min(1, x / rect.width))
+                                const newValue = Math.round(ratio * range + min)
+                                setEffectSliderValues((prev) => ({
+                                  ...prev,
+                                  [selectedEffectName]: { ...prev[selectedEffectName], [sliderId]: newValue },
+                                }))
+                              }
+                              ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+                            }}
+                            onPointerMove={(e) => {
+                              if (e.buttons !== 1 && e.pointerType === 'mouse') return
+                              const track = (e.currentTarget as HTMLElement).closest('.adjust-slider')
+                              if (!track) return
+                              const rect = track.getBoundingClientRect()
+                              const x = e.clientX - rect.left
+                              const ratio = Math.max(0, Math.min(1, x / rect.width))
+                              const newValue = Math.round(ratio * range + min)
+                              setEffectSliderValues((prev) => ({
+                                ...prev,
+                                [selectedEffectName]: { ...prev[selectedEffectName], [sliderId]: newValue },
+                              }))
+                            }}
+                            onPointerUp={(e) => {
+                              setEffectSliderDraggingId(null)
+                              ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                            }}
+                            onPointerCancel={(e) => {
+                              setEffectSliderDraggingId(null)
+                              ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowLeft') {
+                                e.preventDefault()
+                                setEffectSliderValues((prev) => ({
+                                  ...prev,
+                                  [selectedEffectName]: { ...prev[selectedEffectName], [sliderId]: Math.max(min, value - 1) },
+                                }))
+                              } else if (e.key === 'ArrowRight') {
+                                e.preventDefault()
+                                setEffectSliderValues((prev) => ({
+                                  ...prev,
+                                  [selectedEffectName]: { ...prev[selectedEffectName], [sliderId]: Math.min(max, value + 1) },
+                                }))
+                              }
+                            }}
+                            style={{
+                              left: `${((value - min) / range) * 100}%`,
+                            }}
+                          >
+                            <span className="adjust-slider-line-inner" />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {config.hasColorPicker && (
+                    <div className="effects-color-picker">
+                      <div className="effects-color-picker-label">Color Tint</div>
+                      <div className="effects-color-picker-swatches">
+                        {EFFECT_COLOR_PRESETS.map((color) => (
+                          <button
+                            key={color}
+                            className={`effects-color-swatch${effectColorTints[selectedEffectName] === color ? ' effects-color-swatch--selected' : ''}`}
+                            type="button"
+                            style={{ backgroundColor: color }}
+                            aria-label={`Color tint ${color}`}
+                            onClick={() => {
+                              setEffectColorTints((prev) => ({ ...prev, [selectedEffectName]: color }))
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="effects-bottom-buttons">
+                    <button
+                      className="effects-bottom-button effects-bottom-button--back"
+                      type="button"
+                      onClick={() => setSelectedEffectName(null)}
+                    >
+                      All Effects
+                    </button>
+                    <button
+                      className="effects-bottom-button effects-bottom-button--remove"
+                      type="button"
+                      onClick={() => {
+                        setActiveEffects((prev) => prev.filter((e) => e !== selectedEffectName))
+                        setEffectSliderValues((prev) => {
+                          const next = { ...prev }
+                          delete next[selectedEffectName]
+                          return next
+                        })
+                        setEffectColorTints((prev) => {
+                          const next = { ...prev }
+                          delete next[selectedEffectName]
+                          return next
+                        })
+                        setSelectedEffectName(null)
+                      }}
+                    >
+                      Remove Effect
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
 
             {activeBottomLeftMenu === 'quickEdit' && (
               <div className="quick-edit-actions">
